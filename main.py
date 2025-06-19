@@ -20,7 +20,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Замініть на ваш токен від BotFather
-BOT_TOKEN = ""
+BOT_TOKEN = "7439342323:AAGa04Aa1MxAwWcShhYXLh7q9Tl6LKgINBg"
 
 # Дані для квіза
 QUESTIONS = [
