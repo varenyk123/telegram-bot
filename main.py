@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 # ДОДАЙТЕ СЮДИ ВАШЕ ПОСИЛАННЯ НА КОНСУЛЬТАЦІЮ
-CONSULTATION_LINK = "https://calendly.com/your-username/consultation"  # Замініть на ваше посилання
-# Або можете використати посилання на Telegram: "https://t.me/your_username"
+CONSULTATION_LINK = "https://t.me/@meme_pixel"  # Замініть на ваше посилання
+# Або можете використати посилання на Telegram: ""
 
 # Дані для квіза
 QUESTIONS = [
