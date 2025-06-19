@@ -1,3 +1,4 @@
+import os
 import logging
 import json
 from typing import Dict, List
@@ -20,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Замініть на ваш токен від BotFather
-BOT_TOKEN = "7439342323:AAGa04Aa1MxAwWcShhYXLh7q9Tl6LKgINBg"
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 # Дані для квіза
 QUESTIONS = [
