@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 # Замініть на ваш токен від BotFather
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
+# ДОДАЙТЕ СЮДИ ВАШЕ ПОСИЛАННЯ НА КОНСУЛЬТАЦІЮ
+CONSULTATION_LINK = "https://calendly.com/your-username/consultation"  # Замініть на ваше посилання
+# Або можете використати посилання на Telegram: "https://t.me/your_username"
+
 # Дані для квіза
 QUESTIONS = [
     {
@@ -269,7 +273,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.answers.append(answer_type)
         await process_results(query, session)
     elif data == "get_pdf":
-        await send_pdf_result(query, session)
+        await send_pdf_result(query, session, context)
     elif data == "book_session":
         await send_booking_info(query)
 
@@ -367,7 +371,7 @@ async def send_final_result(query, session, result_type):
     
     keyboard = [
         [InlineKeyboardButton("📄 Отримати PDF-памятку", callback_data="get_pdf")],
-        [InlineKeyboardButton("🚀 Записатись на 10-хвилинну розмову", callback_data="book_session")]
+        [InlineKeyboardButton("🚀 Записатись на консультацію", url=CONSULTATION_LINK)]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -380,7 +384,7 @@ async def send_final_result(query, session, result_type):
         parse_mode='Markdown'
     )
 
-async def send_pdf_result(query, session):
+async def send_pdf_result(query, session, context):
     """Генерує та відправляє PDF з результатами"""
     if not hasattr(session, 'final_result'):
         await query.answer("Спочатку пройдіть тест!")
@@ -423,6 +427,11 @@ async def send_pdf_result(query, session):
     
     story.append(Paragraph("Рішення:", styles['Heading2']))
     story.append(Paragraph(solution_text, normal_style))
+    story.append(Spacer(1, 12))
+    
+    # Додаємо посилання на консультацію в PDF
+    story.append(Paragraph("Записатись на консультацію:", styles['Heading2']))
+    story.append(Paragraph(f"Посилання: {CONSULTATION_LINK}", normal_style))
     
     # Будуємо PDF
     doc.build(story)
@@ -439,24 +448,32 @@ async def send_pdf_result(query, session):
     await query.answer("PDF відправлено!")
 
 async def send_booking_info(query):
-    """Відправляє інформацію для запису на консультацію"""
-    booking_text = """🗓 **Запис на персональну сесію**
+    """Відправляє інформацію для запису на консультацію (резервна функція)"""
+    booking_text = f"""🗓 **Запис на персональну сесію**
 
-Для запису на 10-хвилинну розмову, будь ласка, напишіть особисто:
+Для запису на 10-хвилинну розмову, скористайтесь посиланням:
 
-📱 Telegram: @meme_pixel
+🔗 {CONSULTATION_LINK}
 
 Або залиште свій контакт, і ми з вами зв'яжемося найближчим часом.
 
 🔒 Гарантуємо повну конфіденційність та індивідуальний підхід."""
     
+    keyboard = [[InlineKeyboardButton("🚀 Записатись зараз", url=CONSULTATION_LINK)]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
     await query.edit_message_text(
         text=booking_text,
+        reply_markup=reply_markup,
         parse_mode='Markdown'
     )
 
 def main():
     """Головна функція"""
+    # Перевіряємо чи встановлено посилання на консультацію
+    if CONSULTATION_LINK == "https://calendly.com/your-username/consultation":
+        print("⚠️  УВАГА: Не забудьте замінити CONSULTATION_LINK на ваше реальне посилання!")
+    
     # Створюємо додаток
     application = Application.builder().token(BOT_TOKEN).build()
     
