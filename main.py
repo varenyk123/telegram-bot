@@ -389,61 +389,38 @@ async def send_pdf_result(query, session, context):
     if not hasattr(session, 'final_result'):
         await query.answer("Спочатку пройдіть тест!")
         return
-    
+
     result = RESULTS[session.final_result]
-    
+
     # Створюємо PDF
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
-    
-    # Стилі
+
     styles = getSampleStyleSheet()
     title_style = styles['Title']
-    normal_style = styles['Normal']
-    
-    # Контент
+    normal_style = styles['BodyText']
+
     story = []
-    
-    # Заголовок
-    story.append(Paragraph("Система ЯДЕР - Результати", title_style))
+
+    story.append(Paragraph("🧬 СИСТЕМА ЯДЕР — РЕЗУЛЬТАТ", title_style))
     story.append(Spacer(1, 12))
-    
-    # Результат
-    story.append(Paragraph(f"Твій тип: {result['name']}", title_style))
+
+    story.append(Paragraph(f"🔹 Твій тип: {result['name']}", normal_style))
     story.append(Spacer(1, 12))
-    
-    # Додаємо текст результатів (очищений від markdown)
-    shadow_text = result['shadow'].replace('*', '').replace('🔲', '').replace('🟩', '').replace('🎯', '')
-    power_text = result['power'].replace('*', '').replace('🔲', '').replace('🟩', '').replace('🎯', '')
-    solution_text = result['solution'].replace('*', '').replace('🔲', '').replace('🟩', '').replace('🎯', '')
-    
-    story.append(Paragraph("Стан тіні:", styles['Heading2']))
-    story.append(Paragraph(shadow_text, normal_style))
+
+    story.append(Paragraph(result['shadow'].replace("*", ""), normal_style))
     story.append(Spacer(1, 12))
-    
-    story.append(Paragraph("Стан сили:", styles['Heading2']))
-    story.append(Paragraph(power_text, normal_style))
+
+    story.append(Paragraph(result['power'].replace("*", ""), normal_style))
     story.append(Spacer(1, 12))
-    
-    story.append(Paragraph("Рішення:", styles['Heading2']))
-    story.append(Paragraph(solution_text, normal_style))
-    story.append(Spacer(1, 12))
-    
-    # Додаємо посилання на консультацію в PDF
-    story.append(Paragraph("Записатись на консультацію:", styles['Heading2']))
-    story.append(Paragraph(f"Посилання: {CONSULTATION_LINK}", normal_style))
-    
-    # Будуємо PDF
+
+    story.append(Paragraph(result['solution'].replace("*", ""), normal_style))
+
     doc.build(story)
     buffer.seek(0)
-    
-    # Відправляємо файл
-    await context.bot.send_document(
-        chat_id=query.message.chat_id,
-        document=buffer,
-        filename=f"sistema_yader_{result['name'].replace('🧠 ', '').replace('🔥 ', '').replace('🎨 ', '').replace('🧱 ', '').lower()}.pdf",
-        caption="📄 Ваші результати тестування"
-    )
+
+    await query.message.reply_document(document=buffer, filename="rezultat.pdf")
+
     
     await query.answer("PDF відправлено!")
 
@@ -484,5 +461,7 @@ def main():
     # Запускаємо бота
     application.run_polling()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
+
+
