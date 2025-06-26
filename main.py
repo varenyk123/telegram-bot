@@ -12,7 +12,6 @@ from reportlab.lib.units import inch
 from reportlab.pdfbase import pdfutils
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfmetrics
-from reportlab.lib.styles import ParagraphStyle
 import io
 
 # Налаштування логування
@@ -386,63 +385,67 @@ async def send_final_result(query, session, result_type):
     )
 
 async def send_pdf_result(query, session, context):
+    """Генерує та відправляє PDF з результатами"""
     if not hasattr(session, 'final_result'):
         await query.answer("Спочатку пройдіть тест!")
         return
-
+    
     result = RESULTS[session.final_result]
-
+    
+    # Створюємо PDF
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
-
+    
+    # Стилі
     styles = getSampleStyleSheet()
     title_style = styles['Title']
     normal_style = styles['Normal']
-
+    
+    # Контент
     story = []
-
+    
+    # Заголовок
     story.append(Paragraph("Система ЯДЕР - Результати", title_style))
     story.append(Spacer(1, 12))
-
+    
+    # Результат
     story.append(Paragraph(f"Твій тип: {result['name']}", title_style))
     story.append(Spacer(1, 12))
-
-    def clean_text(text):
-        return text.replace('*', '').replace('🔲', '').replace('🟩', '').replace('🎯', '').strip()
-
-    shadow_text = clean_text(result['shadow'])
-    power_text = clean_text(result['power'])
-    solution_text = clean_text(result['solution'])
-
+    
+    # Додаємо текст результатів (очищений від markdown)
+    shadow_text = result['shadow'].replace('*', '').replace('🔲', '').replace('🟩', '').replace('🎯', '')
+    power_text = result['power'].replace('*', '').replace('🔲', '').replace('🟩', '').replace('🎯', '')
+    solution_text = result['solution'].replace('*', '').replace('🔲', '').replace('🟩', '').replace('🎯', '')
+    
     story.append(Paragraph("Стан тіні:", styles['Heading2']))
     story.append(Paragraph(shadow_text, normal_style))
     story.append(Spacer(1, 12))
-
+    
     story.append(Paragraph("Стан сили:", styles['Heading2']))
     story.append(Paragraph(power_text, normal_style))
     story.append(Spacer(1, 12))
-
-    # Видаляємо розділ 'Призначення', бо немає в результатах
-
+    
     story.append(Paragraph("Рішення:", styles['Heading2']))
     story.append(Paragraph(solution_text, normal_style))
     story.append(Spacer(1, 12))
-
+    
+    # Додаємо посилання на консультацію в PDF
     story.append(Paragraph("Записатись на консультацію:", styles['Heading2']))
     story.append(Paragraph(f"Посилання: {CONSULTATION_LINK}", normal_style))
-
+    
+    # Будуємо PDF
     doc.build(story)
     buffer.seek(0)
-
+    
+    # Відправляємо файл
     await context.bot.send_document(
         chat_id=query.message.chat_id,
         document=buffer,
         filename=f"sistema_yader_{result['name'].replace('🧠 ', '').replace('🔥 ', '').replace('🎨 ', '').replace('🧱 ', '').lower()}.pdf",
         caption="📄 Ваші результати тестування"
     )
-
+    
     await query.answer("PDF відправлено!")
-
 
 async def send_booking_info(query):
     """Відправляє інформацію для запису на консультацію (резервна функція)"""
