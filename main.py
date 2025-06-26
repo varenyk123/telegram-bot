@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Отримання змінних середовища
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Ваш URL на Render (наприклад: https://your-app.onrender.com)
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 if not BOT_TOKEN:
     raise ValueError("TELEGRAM_TOKEN не знайдено в змінних середовища")
@@ -33,7 +33,7 @@ if not WEBHOOK_URL:
 # ДОДАЙТЕ СЮДИ ВАШЕ ПОСИЛАННЯ НА КОНСУЛЬТАЦІЮ
 CONSULTATION_LINK = "https://t.me/meme_pixel"
 
-# Всі ваші дані для квіза (без змін)
+# Всі ваші дані для квіза
 QUESTIONS = [
     {
         "id": 1,
@@ -107,7 +107,7 @@ QUESTIONS = [
     }
 ]
 
-# Результати тестування (без змін)
+# Результати тестування
 RESULTS = {
     "A": {
         "name": "🧠 Мислитель",
@@ -224,14 +224,13 @@ class UserSession:
         self.tie_breaker_needed = False
         self.tie_breaker_types = None
 
-# Ініціалізація бота та додатку
-bot = Bot(token=BOT_TOKEN)
+# Ініціалізація Flask
 app = Flask(__name__)
 
-# Створюємо Application для обробки повідомлень
-application = Application.builder().token(BOT_TOKEN).build()
+# Створюємо bot instance
+bot = Bot(token=BOT_TOKEN)
 
-# Додаємо обробники
+# Обробники команд
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обробник команди /start"""
     user_id = update.effective_user.id
@@ -311,31 +310,25 @@ async def send_question(query, session):
 
 async def process_results(query, session):
     """Обробляє результати та визначає тип особистості"""
-    # Підраховуємо відповіді
     counts = {"A": 0, "B": 0, "C": 0, "D": 0}
     for answer in session.answers:
         counts[answer] += 1
     
-    # Знаходимо максимальну кількість
     max_count = max(counts.values())
     winners = [k for k, v in counts.items() if v == max_count]
     
     if len(winners) == 1:
-        # Є явний переможець
         result_type = winners[0]
         await send_final_result(query, session, result_type)
     else:
-        # Потрібне додаткове питання
         if len(winners) == 2:
             tie_key = tuple(sorted(winners))
             if tie_key in TIE_BREAKER_QUESTIONS:
                 await send_tie_breaker_question(query, session, tie_key)
             else:
-                # Якщо немає додаткового питання, вибираємо перший варіант
                 result_type = winners[0]
                 await send_final_result(query, session, result_type)
         else:
-            # Більше 2 варіантів з однаковою кількістю - вибираємо перший
             result_type = winners[0]
             await send_final_result(query, session, result_type)
 
@@ -389,7 +382,6 @@ async def send_final_result(query, session, result_type):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Зберігаємо результат в сесії
     session.final_result = result_type
     
     await query.edit_message_text(
@@ -406,7 +398,6 @@ async def send_pdf_result(query, session, context):
 
     result = RESULTS[session.final_result]
 
-    # Створюємо PDF
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
 
@@ -415,26 +406,20 @@ async def send_pdf_result(query, session, context):
     normal_style = styles['BodyText']
 
     story = []
-
     story.append(Paragraph("🧬 СИСТЕМА ЯДЕР — РЕЗУЛЬТАТ", title_style))
     story.append(Spacer(1, 12))
-
     story.append(Paragraph(f"🔹 Твій тип: {result['name']}", normal_style))
     story.append(Spacer(1, 12))
-
     story.append(Paragraph(result['shadow'].replace("*", ""), normal_style))
     story.append(Spacer(1, 12))
-
     story.append(Paragraph(result['power'].replace("*", ""), normal_style))
     story.append(Spacer(1, 12))
-
     story.append(Paragraph(result['solution'].replace("*", ""), normal_style))
 
     doc.build(story)
     buffer.seek(0)
 
     await query.message.reply_document(document=buffer, filename="rezultat.pdf")
-    
     await query.answer("PDF відправлено!")
 
 async def send_booking_info(query):
@@ -458,9 +443,20 @@ async def send_booking_info(query):
         parse_mode='Markdown'
     )
 
-# Додаємо обробники до application
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CallbackQueryHandler(handle_callback))
+# Створюємо Application тільки для обробки повідомлень
+application = None
+
+async def process_telegram_update(update_data):
+    """Обробляє Telegram оновлення"""
+    global application
+    if application is None:
+        application = Application.builder().token(BOT_TOKEN).build()
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CallbackQueryHandler(handle_callback))
+        await application.initialize()
+    
+    update = Update.de_json(update_data, bot)
+    await application.process_update(update)
 
 # Flask маршрути
 @app.route('/', methods=['GET'])
@@ -473,10 +469,9 @@ def webhook():
         if request.headers.get('content-type') == 'application/json':
             json_string = request.get_data().decode('utf-8')
             update_dict = json.loads(json_string)
-            update = Update.de_json(update_dict, bot)
             
             # Обробляємо update асинхронно
-            asyncio.run(application.process_update(update))
+            asyncio.run(process_telegram_update(update_dict))
             
             return jsonify({'status': 'ok'})
         else:
@@ -486,13 +481,11 @@ def webhook():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # Функція для встановлення webhook
-def set_webhook():
+async def set_webhook():
     try:
         webhook_url = f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}"
-        # Видаляємо старий webhook
-        bot.delete_webhook()
-        # Встановлюємо новий webhook
-        bot.set_webhook(url=webhook_url)
+        await bot.delete_webhook()
+        await bot.set_webhook(url=webhook_url)
         logger.info(f"Webhook встановлено: {webhook_url}")
         print(f"✅ Webhook встановлено: {webhook_url}")
     except Exception as e:
@@ -501,7 +494,7 @@ def set_webhook():
 
 if __name__ == '__main__':
     # Встановлюємо webhook при запуску
-    set_webhook()
+    asyncio.run(set_webhook())
     
     # Запускаємо Flask сервер
     port = int(os.environ.get('PORT', 5000))
