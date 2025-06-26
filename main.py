@@ -1,409 +1,547 @@
 import os
 import logging
-import asyncio
-from datetime import datetime
-from flask import Flask, request, jsonify
-from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
+import json
 import io
+from typing import Dict, List
+from flask import Flask, request, jsonify
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.units import inch
+import asyncio
 import threading
+from dotenv import load_dotenv
+
+# Завантаження змінних середовища
+load_dotenv()
 
 # Налаштування логування
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Отримання змінних середовища
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://telegram-bot-gwpq.onrender.com")
+
+if not BOT_TOKEN:
+    logger.error("TELEGRAM_BOT_TOKEN не знайдено в змінних середовища")
+    raise ValueError("TELEGRAM_BOT_TOKEN не знайдено в змінних середовища")
+
+# ДОДАЙТЕ СЮДИ ВАШЕ ПОСИЛАННЯ НА КОНСУЛЬТАЦІЮ
+CONSULTATION_LINK = "https://t.me/meme_pixel"
+
+# Всі ваші дані для квіза
+QUESTIONS = [
+    {
+        "id": 1,
+        "text": "🧩 1. Що ти робиш, коли все йде не так, як хотів?",
+        "options": [
+            {"text": "A) Думаю, чому так сталося", "type": "A"},
+            {"text": "B) Просто дію по-новому", "type": "B"},
+            {"text": "C) Прислухаюсь до себе", "type": "C"},
+            {"text": "D) Тримаюсь за знайомі мені речі", "type": "D"}
+        ]
+    },
+    {
+        "id": 2,
+        "text": "🧩 2. Що для тебе головне, коли треба щось вирішити?",
+        "options": [
+            {"text": "A) Щоб було логічно", "type": "A"},
+            {"text": "B) Щоб був результат", "type": "B"},
+            {"text": "C) Щоб було \"по душі\"", "type": "C"},
+            {"text": "D) Щоб було надійно", "type": "D"}
+        ]
+    },
+    {
+        "id": 3,
+        "text": "🧩 3. Коли ти найчастіше кайфуєш?",
+        "options": [
+            {"text": "A) Коли щось розумію", "type": "A"},
+            {"text": "B) Коли щось досягаю", "type": "B"},
+            {"text": "C) Коли створюю або мрію", "type": "C"},
+            {"text": "D) Коли все спокійно і стабільно", "type": "D"}
+        ]
+    },
+    {
+        "id": 4,
+        "text": "🧩 4. Як ставишся до змін у житті?",
+        "options": [
+            {"text": "A) Думаю, чи воно мені підходить", "type": "A"},
+            {"text": "B) Пробую — і бачу вже по ходу", "type": "B"},
+            {"text": "C) Люблю щось нове", "type": "C"},
+            {"text": "D) Уникаю, якщо можу", "type": "D"}
+        ]
+    },
+    {
+        "id": 5,
+        "text": "🧩 5. Що тебе найбільше \"зупиняє\"?",
+        "options": [
+            {"text": "A) Занадто багато думок", "type": "A"},
+            {"text": "B) Вигорання від постійної гонки", "type": "B"},
+            {"text": "C) Настрої, що змінюються", "type": "C"},
+            {"text": "D) Страх зробити помилку", "type": "D"}
+        ]
+    },
+    {
+        "id": 6,
+        "text": "🧩 6. Що цінуєш у людях найбільше?",
+        "options": [
+            {"text": "A) Уміння мислити", "type": "A"},
+            {"text": "B) Сміливість діяти", "type": "B"},
+            {"text": "C) Щирість", "type": "C"},
+            {"text": "D) Надійність", "type": "D"}
+        ]
+    },
+    {
+        "id": 7,
+        "text": "🧩 7. Як ти зазвичай ставиш собі цілі?",
+        "options": [
+            {"text": "A) Планую від А до Я", "type": "A"},
+            {"text": "B) Просто йду і роблю", "type": "B"},
+            {"text": "C) Мрію — а потім рухаюсь", "type": "C"},
+            {"text": "D) Повільно, але впевнено", "type": "D"}
+        ]
+    }
+]
+
+# Результати тестування
+RESULTS = {
+    "A": {
+        "name": "🧠 Мислитель",
+        "shadow": """🔲 *Стан тіні:*
+Ти все аналізуєш. Твій розум — як лупа, яка бачить кожну деталь.
+Але саме це і заважає: сумніви, перфекціонізм, роздуми без дії.
+Ти не відчуваєш руху — бо боїшся помилки.""",
+        "power": """🟩 *Стан сили:*
+Ти — архітектор ідей. Там, де інші втрачають орієнтир — ти бачиш карту.
+Твоя сила — створювати ясність. Твоя глибина — дар для тих, хто шукає змісту.
+Коли ти дієш — світ стає логічним.""",
+        "solution": """🎯 *Рішення:*
+Вибери одну справу, яка важлива для тебе.
+І дозволь собі зробити її неідеально — але завершити.
+Твоя свобода — у русі."""
+    },
+    "B": {
+        "name": "🔥 Діяч",
+        "shadow": """🔲 *Стан тіні:*
+Ти звик діяти, пробивати, досягати. Але саме це іноді тебе руйнує.
+Ти вигорів? Або загубив сенс у швидкості?
+Можливо, ти воюєш вже не за своє.""",
+        "power": """🟩 *Стан сили:*
+Ти — вогонь. Твоя енергія запалює інших.
+Ти здатен швидко створювати результати там, де інші лише планують.
+Коли твоя дія базується на внутрішній цінності — ти стаєш непереможним.""",
+        "solution": """🎯 *Рішення:*
+Зупинись на мить. Запитай себе: «Для чого я це роблю?»
+Повернись до сенсу — і тоді дії знову почнуть давати кайф."""
+    },
+    "C": {
+        "name": "🎨 Творець",
+        "shadow": """🔲 *Стан тіні:*
+Ти живеш емоціями. Але саме вони часом тебе ламають.
+Ти надто глибоко переживаєш, сумніваєшся, втрачаєш фокус.
+І часто чекаєш ідеального моменту для старту.""",
+        "power": """🟩 *Стан сили:*
+Ти — джерело краси, ідей і сенсу.
+Твоя здатність бачити глибше — це не вада, а дар.
+Ти не просто твориш — ти створюєш простори, де оживає душа.""",
+        "solution": """🎯 *Рішення:*
+Не чекай натхнення — створюй ритуал дії.
+Твоя стабільність — це не смерть творчості, а її платформа."""
+    },
+    "D": {
+        "name": "🧱 Будівник",
+        "shadow": """🔲 *Стан тіні:*
+Ти тримаєшся за знайоме. Це дає спокій, але блокує розвиток.
+Зміни лякають, нове здається загрозою. Ти зупиняєш себе, навіть не усвідомлюючи.""",
+        "power": """🟩 *Стан сили:*
+Ти — опора. Ти створюєш стабільність там, де інші панікують.
+На тобі можуть стояти проєкти, стосунки, цілі.
+Ти будуєш світ, який витримує час.""",
+        "solution": """🎯 *Рішення:*
+Зроби крок у нове — маленький, але усвідомлений.
+Досвід змін — не зруйнує тебе. Він зробить тебе ще міцнішим."""
+    }
+}
+
+# Додаткові питання для визначення типу при рівності
+TIE_BREAKER_QUESTIONS = {
+    ("A", "B"): {
+        "text": "❓ Що тобі ближче саме зараз?",
+        "options": [
+            {"text": "🧠 Зрозуміти, як усе працює, щоб діяти з впевненістю", "type": "A"},
+            {"text": "🔥 Зробити перший крок, навіть не знаючи всіх відповідей", "type": "B"}
+        ]
+    },
+    ("A", "C"): {
+        "text": "❓ Що тобі потрібніше сьогодні?",
+        "options": [
+            {"text": "🧩 Відчути, що все логічно і на своїх місцях", "type": "A"},
+            {"text": "🎨 Передати внутрішній стан через дію або творчість", "type": "C"}
+        ]
+    },
+    ("A", "D"): {
+        "text": "❓ Яка думка тебе більше заспокоює?",
+        "options": [
+            {"text": "📐 \"Я все зрозумів — і можу це контролювати\"", "type": "A"},
+            {"text": "🧱 \"Я в безпеці — все стабільно і зрозуміло\"", "type": "D"}
+        ]
+    },
+    ("B", "C"): {
+        "text": "❓ Як ти більше любиш починати справу?",
+        "options": [
+            {"text": "🔥 Просто берусь і в процесі розбираюсь", "type": "B"},
+            {"text": "💭 Чекаю, коли з'явиться натхнення або внутрішній поштовх", "type": "C"}
+        ]
+    },
+    ("B", "D"): {
+        "text": "❓ Що для тебе важливіше в складний момент?",
+        "options": [
+            {"text": "💪 Взяти на себе ініціативу і змінити ситуацію", "type": "B"},
+            {"text": "🧘‍♂️ Довіритись перевіреному шляху і не поспішати", "type": "D"}
+        ]
+    },
+    ("C", "D"): {
+        "text": "❓ Що більше тобі підходить?",
+        "options": [
+            {"text": "🎭 Свобода, зміна, експерименти", "type": "C"},
+            {"text": "🧱 Стабільність, чіткість, порядок", "type": "D"}
+        ]
+    }
+}
+
+# Словник для збереження стану користувачів
+user_sessions = {}
+
+class UserSession:
+    def __init__(self, user_id):
+        self.user_id = user_id
+        self.current_question = 0
+        self.answers = []
+        self.tie_breaker_needed = False
+        self.tie_breaker_types = None
+        self.final_result = None
 
 # Flask додаток
 app = Flask(__name__)
 
-# Отримання токена
-token = os.getenv('TELEGRAM_BOT_TOKEN')
-if not token:
-    logger.error("TELEGRAM_BOT_TOKEN не встановлено!")
-    exit(1)
+# Глобальна змінна для Application
+telegram_app = None
 
-# Створення бота та application
-bot = Bot(token=token)
-application = Application.builder().token(token).build()
-
-# Отримання URL для webhook
-base_url = os.getenv('RENDER_EXTERNAL_URL', 'https://your-app.onrender.com')
-if base_url.endswith('.'):
-    base_url = base_url[:-1]
-webhook_url = f"{base_url}/webhook/{token}"
-
-# Змінні для зберігання стану
-user_states = {}
-user_data = {}
-
-class UserState:
-    NONE = 0
-    WAITING_FOR_COMPANY = 1
-    WAITING_FOR_CONTACT = 2
-    WAITING_FOR_WORK_HOURS = 3
-    WAITING_FOR_HOURLY_RATE = 4
-    WAITING_FOR_DESCRIPTION = 5
-
-# Обробники команд
-async def start_command(update: Update, context):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обробник команди /start"""
     user_id = update.effective_user.id
-    user_states[user_id] = UserState.NONE
-    user_data[user_id] = {}
+    user_sessions[user_id] = UserSession(user_id)
     
-    keyboard = [
-        [InlineKeyboardButton("📋 Створити рахунок", callback_data="create_invoice")],
-        [InlineKeyboardButton("ℹ️ Про бота", callback_data="about")]
-    ]
+    welcome_text = """👋 Вітаю тебе в персональній грі-діагностиці «СИСТЕМА ЯДЕР».
+
+Це не просто тест. Це — дзеркало твоєї природи.
+
+🔐 У тебе є 7 кроків. За кожен — ти відкриватимеш ось нове про себе.
+
+🎯 У фіналі отримаєш: свій внутрішній двигун + особисту рекомендацію.
+
+🖤 Важливо: ця система не для всіх. Лише для тих, хто справді хоче побачити себе без маски та прикрас.
+
+Якщо ти хочеш дізнатись хто ти:
+• **Мислитель**
+• **Діяч** 
+• **Творець**
+• **Будівник**"""
+    
+    keyboard = [[InlineKeyboardButton("▶️ Почати", callback_data="start_quiz")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    welcome_text = """
-🤖 Привіт! Я бот для створення рахунків-фактур.
+    await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
 
-Я допоможу вам швидко створити професійний рахунок у форматі PDF.
-
-Виберіть дію з меню нижче:
-    """
-    
-    await update.message.reply_text(welcome_text, reply_markup=reply_markup)
-
-async def help_command(update: Update, context):
-    help_text = """
-🆘 Допомога по боту:
-
-📋 Створення рахунку:
-• Натисніть "Створити рахунок"
-• Введіть дані крок за кроком
-• Отримайте готовий PDF
-
-💡 Корисні команди:
-/start - Головне меню
-/help - Ця довідка
-/cancel - Скасувати операцію
-    """
-    await update.message.reply_text(help_text)
-
-async def cancel_command(update: Update, context):
-    user_id = update.effective_user.id
-    user_states[user_id] = UserState.NONE
-    user_data[user_id] = {}
-    await update.message.reply_text("❌ Операцію скасовано. Напишіть /start для початку.")
-
-# Обробка callback queries
-async def callback_handler(update: Update, context):
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обробник callback запитів"""
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
+    data = query.data
     
-    if query.data == "create_invoice":
-        user_states[user_id] = UserState.WAITING_FOR_COMPANY
-        user_data[user_id] = {}
-        
-        await query.edit_message_text(
-            "📋 Створення рахунку\n\nКрок 1/5: Введіть назву вашої компанії:"
-        )
-        
-    elif query.data == "about":
-        about_text = """
-ℹ️ Про бота:
-
-Цей бот створений для швидкого формування рахунків-фактур у PDF форматі.
-
-🔧 Функції:
-• Створення професійних рахунків
-• Експорт у PDF
-• Підтримка української мови
-        """
-        
-        keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(about_text, reply_markup=reply_markup)
-        
-    elif query.data == "back_to_main":
-        keyboard = [
-            [InlineKeyboardButton("📋 Створити рахунок", callback_data="create_invoice")],
-            [InlineKeyboardButton("ℹ️ Про бота", callback_data="about")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        welcome_text = """
-🤖 Привіт! Я бот для створення рахунків-фактур.
-
-Я допоможу вам швидко створити професійний рахунок у форматі PDF.
-
-Виберіть дію з меню нижче:
-        """
-        
-        await query.edit_message_text(welcome_text, reply_markup=reply_markup)
-
-# Обробка текстових повідомлень
-async def handle_message(update: Update, context):
-    user_id = update.effective_user.id
-    text = update.message.text
+    if user_id not in user_sessions:
+        user_sessions[user_id] = UserSession(user_id)
     
-    if user_id not in user_states:
-        user_states[user_id] = UserState.NONE
-        user_data[user_id] = {}
+    session = user_sessions[user_id]
     
-    state = user_states[user_id]
-    
-    if state == UserState.WAITING_FOR_COMPANY:
-        user_data[user_id]['company'] = text
-        user_states[user_id] = UserState.WAITING_FOR_CONTACT
+    if data == "start_quiz":
+        await send_question(query, session)
+    elif data.startswith("answer_"):
+        answer_type = data.split("_")[1]
+        session.answers.append(answer_type)
+        session.current_question += 1
         
-        await update.message.reply_text(
-            "✅ Назву компанії збережено!\n\nКрок 2/5: Введіть контактну інформацію (телефон, email, адреса):"
-        )
-        
-    elif state == UserState.WAITING_FOR_CONTACT:
-        user_data[user_id]['contact'] = text
-        user_states[user_id] = UserState.WAITING_FOR_WORK_HOURS
-        
-        await update.message.reply_text(
-            "✅ Контактну інформацію збережено!\n\nКрок 3/5: Введіть кількість відпрацьованих годин:"
-        )
-        
-    elif state == UserState.WAITING_FOR_WORK_HOURS:
-        try:
-            hours = float(text)
-            if hours <= 0:
-                raise ValueError("Години повинні бути більше 0")
-                
-            user_data[user_id]['hours'] = hours
-            user_states[user_id] = UserState.WAITING_FOR_HOURLY_RATE
-            
-            await update.message.reply_text(
-                "✅ Кількість годин збережено!\n\nКрок 4/5: Введіть погодинну ставку (у грн):"
-            )
-        except ValueError:
-            await update.message.reply_text(
-                "❌ Помилка! Введіть коректну кількість годин (наприклад: 8 або 8.5)"
-            )
-            
-    elif state == UserState.WAITING_FOR_HOURLY_RATE:
-        try:
-            rate = float(text)
-            if rate <= 0:
-                raise ValueError("Ставка повинна бути більше 0")
-                
-            user_data[user_id]['rate'] = rate
-            user_states[user_id] = UserState.WAITING_FOR_DESCRIPTION
-            
-            # Розрахунок загальної суми
-            total = user_data[user_id]['hours'] * rate
-            user_data[user_id]['total'] = total
-            
-            await update.message.reply_text(
-                f"✅ Погодинну ставку збережено!\n\n"
-                f"📊 Розрахунок:\n"
-                f"• Години: {user_data[user_id]['hours']}\n"
-                f"• Ставка: {rate} грн/год\n"
-                f"• Загальна сума: {total:.2f} грн\n\n"
-                f"Крок 5/5: Введіть опис робіт або напишіть 'готово':"
-            )
-            
-        except ValueError:
-            await update.message.reply_text(
-                "❌ Помилка! Введіть коректну погодинну ставку (наприклад: 500 або 750.50)"
-            )
-            
-    elif state == UserState.WAITING_FOR_DESCRIPTION:
-        if text.lower() in ['готово', 'готов', 'готово!']:
-            user_data[user_id]['description'] = "Надання IT послуг"
+        if session.current_question < len(QUESTIONS):
+            await send_question(query, session)
         else:
-            user_data[user_id]['description'] = text
-            
-        # Створення PDF
-        try:
-            pdf_buffer = create_pdf_invoice(user_data[user_id])
-            
-            # Відправка PDF
-            await context.bot.send_document(
-                chat_id=user_id,
-                document=pdf_buffer,
-                filename=f"invoice_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                caption="✅ Ваш рахунок готовий!"
-            )
-            
-            # Скидання стану
-            user_states[user_id] = UserState.NONE
-            user_data[user_id] = {}
-            
-            # Повернення до головного меню
-            keyboard = [[InlineKeyboardButton("📋 Створити новий рахунок", callback_data="create_invoice")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await update.message.reply_text(
-                "🎉 Рахунок успішно створено!\n\nЩо бажаєте зробити далі?",
-                reply_markup=reply_markup
-            )
-            
-        except Exception as e:
-            logger.error(f"Помилка створення PDF: {e}")
-            await update.message.reply_text(
-                "❌ Помилка створення PDF. Спробуйте ще раз пізніше."
-            )
-            user_states[user_id] = UserState.NONE
-            user_data[user_id] = {}
+            await process_results(query, session)
+    elif data.startswith("tie_"):
+        answer_type = data.split("_")[1]
+        session.answers.append(answer_type)
+        await process_results(query, session)
+    elif data == "get_pdf":
+        await send_pdf_result(query, session, context)
+
+async def send_question(query, session):
+    """Відправляє поточне питання"""
+    question = QUESTIONS[session.current_question]
+    
+    keyboard = []
+    for option in question["options"]:
+        keyboard.append([InlineKeyboardButton(
+            option["text"], 
+            callback_data=f"answer_{option['type']}"
+        )])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        text=question["text"],
+        reply_markup=reply_markup
+    )
+
+async def process_results(query, session):
+    """Обробляє результати та визначає тип особистості"""
+    # Підраховуємо відповіді
+    counts = {"A": 0, "B": 0, "C": 0, "D": 0}
+    for answer in session.answers:
+        counts[answer] += 1
+    
+    # Знаходимо максимальну кількість
+    max_count = max(counts.values())
+    winners = [k for k, v in counts.items() if v == max_count]
+    
+    if len(winners) == 1:
+        # Є явний переможець
+        result_type = winners[0]
+        await send_final_result(query, session, result_type)
     else:
-        # Стан не визначено
-        await update.message.reply_text(
-            "❓ Не розумію команду. Напишіть /start для початку роботи."
-        )
+        # Потрібне додаткове питання
+        if len(winners) == 2:
+            tie_key = tuple(sorted(winners))
+            if tie_key in TIE_BREAKER_QUESTIONS:
+                await send_tie_breaker_question(query, session, tie_key)
+            else:
+                # Якщо немає додаткового питання, вибираємо перший варіант
+                result_type = winners[0]
+                await send_final_result(query, session, result_type)
+        else:
+            # Більше 2 варіантів з однаковою кількістю - вибираємо перший
+            result_type = winners[0]
+            await send_final_result(query, session, result_type)
 
-def create_pdf_invoice(data):
-    """Створення PDF рахунку"""
-    buffer = io.BytesIO()
+async def send_tie_breaker_question(query, session, tie_types):
+    """Відправляє додаткове питання для визначення типу"""
+    session.tie_breaker_types = tie_types
+    question = TIE_BREAKER_QUESTIONS[tie_types]
     
-    # Створення PDF
-    c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
+    keyboard = []
+    for option in question["options"]:
+        keyboard.append([InlineKeyboardButton(
+            option["text"], 
+            callback_data=f"tie_{option['type']}"
+        )])
     
-    # Заголовок
-    c.setFont("Helvetica-Bold", 20)
-    c.drawString(50, height - 50, "RAHUNOK-FAKTURA")
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Дата
-    c.setFont("Helvetica", 12)
-    current_date = datetime.now().strftime("%d.%m.%Y")
-    c.drawString(50, height - 80, f"Data: {current_date}")
-    
-    # Інформація про компанію
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, height - 120, "Postachalnik:")
-    c.setFont("Helvetica", 12)
-    c.drawString(50, height - 140, data['company'])
-    
-    # Контактна інформація
-    lines = data['contact'].split('\n')
-    y_pos = height - 160
-    for line in lines:
-        c.drawString(50, y_pos, line)
-        y_pos -= 20
-    
-    # Опис робіт
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(50, y_pos - 40, "Opys robit:")
-    
-    c.setFont("Helvetica", 11)
-    c.drawString(50, y_pos - 60, data.get('description', 'Nadannia IT poslug'))
-    c.drawString(50, y_pos - 80, f"Kilkist godyn: {data['hours']}")
-    c.drawString(50, y_pos - 100, f"Pogodynna stavka: {data['rate']:.2f} grn")
-    
-    # Підсумок
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, y_pos - 140, f"ZAGALNA SUMA: {data['total']:.2f} grn")
-    
-    # Підпис
-    c.setFont("Helvetica", 10)
-    c.drawString(50, 50, "Diakuiemo za spivpratsiu!")
-    
-    c.save()
-    buffer.seek(0)
-    return buffer
+    await query.edit_message_text(
+        text=question["text"],
+        reply_markup=reply_markup
+    )
 
-# Додавання обробників до application
-application.add_handler(CommandHandler("start", start_command))
-application.add_handler(CommandHandler("help", help_command))
-application.add_handler(CommandHandler("cancel", cancel_command))
-application.add_handler(CallbackQueryHandler(callback_handler))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+async def send_final_result(query, session, result_type):
+    """Відправляє фінальний результат"""
+    result = RESULTS[result_type]
+    
+    result_text = f"""🧬 **Твій тип: {result['name']}**
 
-# Глобальні змінні для event loop
-loop = None
-loop_thread = None
+{result['shadow']}
 
-def run_event_loop():
-    """Запуск event loop в окремому потоці"""
-    global loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_forever()
+{result['power']}
 
-def ensure_event_loop():
-    """Переконуємося, що event loop запущений"""
-    global loop, loop_thread
-    if loop is None or not loop.is_running():
-        loop_thread = threading.Thread(target=run_event_loop, daemon=True)
-        loop_thread.start()
-        # Чекаємо, поки loop ініціалізується
-        import time
-        time.sleep(0.1)
+{result['solution']}
+
+━━━━━━━━━━━━━━━━━━━━
+
+🧬 Твій внутрішній двигун визначено.
+
+Це було лише 5% від того, що можна дізнатись про себе.
+
+🧠 За 10 хвилин я допоможу тобі:
+— Побачити, що реально тебе блокує
+— Визначити просту дію, яка запустить зміни
+— Отримати ясність, яку не дасть жоден тест
+
+🔒 Це буде приватна розмова. Без води. Без коучингу. Лише суть."""
+    
+    keyboard = [
+        [InlineKeyboardButton("📄 Отримати PDF-памятку", callback_data="get_pdf")],
+        [InlineKeyboardButton("🚀 Записатись на консультацію", url=CONSULTATION_LINK)]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Зберігаємо результат в сесії
+    session.final_result = result_type
+    
+    await query.edit_message_text(
+        text=result_text,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def send_pdf_result(query, session, context):
+    """Генерує та відправляє PDF з результатами"""
+    if not hasattr(session, 'final_result') or not session.final_result:
+        await query.answer("Спочатку пройдіть тест!")
+        return
+
+    try:
+        result = RESULTS[session.final_result]
+
+        # Створюємо PDF
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4)
+
+        styles = getSampleStyleSheet()
+        title_style = styles['Title']
+        normal_style = styles['BodyText']
+
+        story = []
+
+        story.append(Paragraph("🧬 СИСТЕМА ЯДЕР — РЕЗУЛЬТАТ", title_style))
+        story.append(Spacer(1, 12))
+
+        story.append(Paragraph(f"🔹 Твій тип: {result['name']}", normal_style))
+        story.append(Spacer(1, 12))
+
+        story.append(Paragraph(result['shadow'].replace("*", ""), normal_style))
+        story.append(Spacer(1, 12))
+
+        story.append(Paragraph(result['power'].replace("*", ""), normal_style))
+        story.append(Spacer(1, 12))
+
+        story.append(Paragraph(result['solution'].replace("*", ""), normal_style))
+
+        doc.build(story)
+        buffer.seek(0)
+
+        await query.message.reply_document(document=buffer, filename="rezultat.pdf")
+        await query.answer("PDF відправлено!")
+        
+    except Exception as e:
+        logger.error(f"Помилка генерації PDF: {e}")
+        await query.answer("Помилка при створенні PDF")
+
+async def initialize_telegram_app():
+    """Ініціалізація Telegram Application"""
+    global telegram_app
+    
+    # Створення Application
+    telegram_app = Application.builder().token(BOT_TOKEN).build()
+    
+    # Додавання обробників
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(CallbackQueryHandler(handle_callback))
+    
+    # Ініціалізація
+    await telegram_app.initialize()
+    await telegram_app.start()
+    
+    # Налаштування webhook
+    webhook_url = f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}"
+    await telegram_app.bot.set_webhook(webhook_url)
+    
+    logger.info(f"Webhook встановлено: {webhook_url}")
+    logger.info("Telegram бот ініціалізовано успішно!")
 
 # Flask маршрути
-@app.route('/webhook/<token_path>', methods=['POST'])
-def webhook(token_path):
-    """Обробка webhook від Telegram"""
-    if token_path != token:
-        return "Unauthorized", 401
-    
-    try:
-        # Переконуємося, що event loop запущений
-        ensure_event_loop()
-        
-        # Отримання даних
-        json_data = request.get_json()
-        
-        # Створення Update об'єкта
-        update = Update.de_json(json_data, bot)
-        
-        # Обробка update в event loop
-        future = asyncio.run_coroutine_threadsafe(
-            application.process_update(update),
-            loop
-        )
-        # Чекаємо результат з таймаутом
-        future.result(timeout=30)
-        
-        return "OK", 200
-        
-    except Exception as e:
-        logger.error(f"Помилка webhook: {e}")
-        return "Error", 500
-
-@app.route('/')
+@app.route('/', methods=['GET'])
 def index():
-    """Головна сторінка"""
     return jsonify({
-        "status": "active",
-        "bot": "Telegram Invoice Bot",
-        "webhook": webhook_url
+        'status': 'Опитувальний бот працює!', 
+        'webhook': 'активний',
+        'url': f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}"
     })
 
-@app.route('/health')
-def health():
-    """Перевірка здоров'я"""
-    return jsonify({"status": "healthy"})
-
-async def setup_webhook():
-    """Налаштування webhook"""
+@app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
+def webhook():
+    global telegram_app
+    
+    if not telegram_app:
+        logger.error("Telegram Application не ініціалізовано!")
+        return jsonify({"error": "Application not initialized"}), 500
+    
     try:
-        # Видалення старого webhook
-        await bot.delete_webhook(drop_pending_updates=True)
-        await asyncio.sleep(1)
-        
-        # Встановлення нового webhook
-        await bot.set_webhook(url=webhook_url)
-        logger.info(f"Webhook встановлено: {webhook_url}")
-        print(f"✅ Webhook встановлено: {webhook_url}")
-        
+        if request.headers.get('content-type') == 'application/json':
+            json_data = request.get_json()
+            
+            if not json_data:
+                return jsonify({'status': 'error', 'message': 'No data received'}), 400
+            
+            # Створення Update об'єкта
+            update = Update.de_json(json_data, telegram_app.bot)
+            
+            # Асинхронна обробка в новому event loop
+            def run_async():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(telegram_app.process_update(update))
+                finally:
+                    loop.close()
+            
+            # Запуск в окремому потоці
+            thread = threading.Thread(target=run_async)
+            thread.start()
+            
+            return jsonify({'status': 'ok'})
+        else:
+            return jsonify({'status': 'error', 'message': 'Content-Type не application/json'}), 400
     except Exception as e:
-        logger.error(f"Помилка встановлення webhook: {e}")
-        print(f"❌ Помилка встановлення webhook: {e}")
+        logger.error(f"Помилка в webhook: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
-def setup_webhook_sync():
-    """Синхронне налаштування webhook"""
-    asyncio.run(setup_webhook())
+def run_flask():
+    """Запуск Flask сервера"""
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False)
+
+async def main():
+    """Головна функція"""
+    try:
+        # Ініціалізація Telegram бота
+        await initialize_telegram_app()
+        
+        # Запуск Flask в окремому потоці
+        flask_thread = threading.Thread(target=run_flask)
+        flask_thread.daemon = True
+        flask_thread.start()
+        
+        logger.info("Опитувальний бот запущено успішно!")
+        
+        # Очікування завершення
+        while True:
+            await asyncio.sleep(1)
+            
+    except KeyboardInterrupt:
+        logger.info("Зупинка сервісу...")
+        if telegram_app:
+            await telegram_app.stop()
+            await telegram_app.shutdown()
+    except Exception as e:
+        logger.error(f"Критична помилка: {e}")
+        if telegram_app:
+            await telegram_app.stop()
+            await telegram_app.shutdown()
 
 if __name__ == '__main__':
-    # Налаштування webhook
-    setup_webhook_sync()
-    
-    # Запуск Flask сервера
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
+    # Запуск асинхронної головної функції
+    asyncio.run(main())
