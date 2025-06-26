@@ -13,10 +13,6 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.units import inch
 import asyncio
 import threading
-from dotenv import load_dotenv
-
-# Завантаження змінних середовища
-load_dotenv()
 
 # Налаштування логування
 logging.basicConfig(
@@ -25,17 +21,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Отримання змінних середовища
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://telegram-bot-gwpq.onrender.com")
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Ваш URL на Render (наприклад: https://your-app.onrender.com)
 
 if not BOT_TOKEN:
-    logger.error("TELEGRAM_BOT_TOKEN не знайдено в змінних середовища")
-    raise ValueError("TELEGRAM_BOT_TOKEN не знайдено в змінних середовища")
+    raise ValueError("TELEGRAM_TOKEN не знайдено в змінних середовища")
+
+if not WEBHOOK_URL:
+    raise ValueError("WEBHOOK_URL не знайдено в змінних середовища")
 
 # ДОДАЙТЕ СЮДИ ВАШЕ ПОСИЛАННЯ НА КОНСУЛЬТАЦІЮ
 CONSULTATION_LINK = "https://t.me/meme_pixel"
 
-# Всі ваші дані для квіза
+# Всі ваші дані для квіза (без змін)
 QUESTIONS = [
     {
         "id": 1,
@@ -109,7 +107,7 @@ QUESTIONS = [
     }
 ]
 
-# Результати тестування
+# Результати тестування (без змін)
 RESULTS = {
     "A": {
         "name": "🧠 Мислитель",
@@ -225,14 +223,15 @@ class UserSession:
         self.answers = []
         self.tie_breaker_needed = False
         self.tie_breaker_types = None
-        self.final_result = None
 
-# Flask додаток
+# Ініціалізація бота та додатку
+bot = Bot(token=BOT_TOKEN)
 app = Flask(__name__)
 
-# Глобальна змінна для Application
-telegram_app = None
+# Створюємо Application для обробки повідомлень
+application = Application.builder().token(BOT_TOKEN).build()
 
+# Додаємо обробники
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обробник команди /start"""
     user_id = update.effective_user.id
@@ -289,6 +288,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await process_results(query, session)
     elif data == "get_pdf":
         await send_pdf_result(query, session, context)
+    elif data == "book_session":
+        await send_booking_info(query)
 
 async def send_question(query, session):
     """Відправляє поточне питання"""
@@ -399,108 +400,83 @@ async def send_final_result(query, session, result_type):
 
 async def send_pdf_result(query, session, context):
     """Генерує та відправляє PDF з результатами"""
-    if not hasattr(session, 'final_result') or not session.final_result:
+    if not hasattr(session, 'final_result'):
         await query.answer("Спочатку пройдіть тест!")
         return
 
-    try:
-        result = RESULTS[session.final_result]
+    result = RESULTS[session.final_result]
 
-        # Створюємо PDF
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4)
+    # Створюємо PDF
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
 
-        styles = getSampleStyleSheet()
-        title_style = styles['Title']
-        normal_style = styles['BodyText']
+    styles = getSampleStyleSheet()
+    title_style = styles['Title']
+    normal_style = styles['BodyText']
 
-        story = []
+    story = []
 
-        story.append(Paragraph("🧬 СИСТЕМА ЯДЕР — РЕЗУЛЬТАТ", title_style))
-        story.append(Spacer(1, 12))
+    story.append(Paragraph("🧬 СИСТЕМА ЯДЕР — РЕЗУЛЬТАТ", title_style))
+    story.append(Spacer(1, 12))
 
-        story.append(Paragraph(f"🔹 Твій тип: {result['name']}", normal_style))
-        story.append(Spacer(1, 12))
+    story.append(Paragraph(f"🔹 Твій тип: {result['name']}", normal_style))
+    story.append(Spacer(1, 12))
 
-        story.append(Paragraph(result['shadow'].replace("*", ""), normal_style))
-        story.append(Spacer(1, 12))
+    story.append(Paragraph(result['shadow'].replace("*", ""), normal_style))
+    story.append(Spacer(1, 12))
 
-        story.append(Paragraph(result['power'].replace("*", ""), normal_style))
-        story.append(Spacer(1, 12))
+    story.append(Paragraph(result['power'].replace("*", ""), normal_style))
+    story.append(Spacer(1, 12))
 
-        story.append(Paragraph(result['solution'].replace("*", ""), normal_style))
+    story.append(Paragraph(result['solution'].replace("*", ""), normal_style))
 
-        doc.build(story)
-        buffer.seek(0)
+    doc.build(story)
+    buffer.seek(0)
 
-        await query.message.reply_document(document=buffer, filename="rezultat.pdf")
-        await query.answer("PDF відправлено!")
-        
-    except Exception as e:
-        logger.error(f"Помилка генерації PDF: {e}")
-        await query.answer("Помилка при створенні PDF")
-
-async def initialize_telegram_app():
-    """Ініціалізація Telegram Application"""
-    global telegram_app
+    await query.message.reply_document(document=buffer, filename="rezultat.pdf")
     
-    # Створення Application
-    telegram_app = Application.builder().token(BOT_TOKEN).build()
+    await query.answer("PDF відправлено!")
+
+async def send_booking_info(query):
+    """Відправляє інформацію для запису на консультацію"""
+    booking_text = f"""🗓 **Запис на персональну сесію**
+
+Для запису на 10-хвилинну розмову, скористайтесь посиланням:
+
+🔗 {CONSULTATION_LINK}
+
+Або залиште свій контакт, і ми з вами зв'яжемося найближчим часом.
+
+🔒 Гарантуємо повну конфіденційність та індивідуальний підхід."""
     
-    # Додавання обробників
-    telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(CallbackQueryHandler(handle_callback))
+    keyboard = [[InlineKeyboardButton("🚀 Записатись зараз", url=CONSULTATION_LINK)]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Ініціалізація
-    await telegram_app.initialize()
-    await telegram_app.start()
-    
-    # Налаштування webhook
-    webhook_url = f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}"
-    await telegram_app.bot.set_webhook(webhook_url)
-    
-    logger.info(f"Webhook встановлено: {webhook_url}")
-    logger.info("Telegram бот ініціалізовано успішно!")
+    await query.edit_message_text(
+        text=booking_text,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+# Додаємо обробники до application
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CallbackQueryHandler(handle_callback))
 
 # Flask маршрути
 @app.route('/', methods=['GET'])
 def index():
-    return jsonify({
-        'status': 'Опитувальний бот працює!', 
-        'webhook': 'активний',
-        'url': f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}"
-    })
+    return jsonify({'status': 'Опитувальний бот працює!', 'webhook': 'активний'})
 
 @app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
 def webhook():
-    global telegram_app
-    
-    if not telegram_app:
-        logger.error("Telegram Application не ініціалізовано!")
-        return jsonify({"error": "Application not initialized"}), 500
-    
     try:
         if request.headers.get('content-type') == 'application/json':
-            json_data = request.get_json()
+            json_string = request.get_data().decode('utf-8')
+            update_dict = json.loads(json_string)
+            update = Update.de_json(update_dict, bot)
             
-            if not json_data:
-                return jsonify({'status': 'error', 'message': 'No data received'}), 400
-            
-            # Створення Update об'єкта
-            update = Update.de_json(json_data, telegram_app.bot)
-            
-            # Асинхронна обробка в новому event loop
-            def run_async():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(telegram_app.process_update(update))
-                finally:
-                    loop.close()
-            
-            # Запуск в окремому потоці
-            thread = threading.Thread(target=run_async)
-            thread.start()
+            # Обробляємо update асинхронно
+            asyncio.run(application.process_update(update))
             
             return jsonify({'status': 'ok'})
         else:
@@ -509,39 +485,24 @@ def webhook():
         logger.error(f"Помилка в webhook: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-def run_flask():
-    """Запуск Flask сервера"""
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False)
-
-async def main():
-    """Головна функція"""
+# Функція для встановлення webhook
+def set_webhook():
     try:
-        # Ініціалізація Telegram бота
-        await initialize_telegram_app()
-        
-        # Запуск Flask в окремому потоці
-        flask_thread = threading.Thread(target=run_flask)
-        flask_thread.daemon = True
-        flask_thread.start()
-        
-        logger.info("Опитувальний бот запущено успішно!")
-        
-        # Очікування завершення
-        while True:
-            await asyncio.sleep(1)
-            
-    except KeyboardInterrupt:
-        logger.info("Зупинка сервісу...")
-        if telegram_app:
-            await telegram_app.stop()
-            await telegram_app.shutdown()
+        webhook_url = f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}"
+        # Видаляємо старий webhook
+        bot.delete_webhook()
+        # Встановлюємо новий webhook
+        bot.set_webhook(url=webhook_url)
+        logger.info(f"Webhook встановлено: {webhook_url}")
+        print(f"✅ Webhook встановлено: {webhook_url}")
     except Exception as e:
-        logger.error(f"Критична помилка: {e}")
-        if telegram_app:
-            await telegram_app.stop()
-            await telegram_app.shutdown()
+        logger.error(f"Помилка встановлення webhook: {e}")
+        print(f"❌ Помилка встановлення webhook: {e}")
 
 if __name__ == '__main__':
-    # Запуск асинхронної головної функції
-    asyncio.run(main())
+    # Встановлюємо webhook при запуску
+    set_webhook()
+    
+    # Запускаємо Flask сервер
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
