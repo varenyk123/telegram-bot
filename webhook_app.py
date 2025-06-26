@@ -3,7 +3,7 @@ import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 # Імпортуй сюди свої функції start, handle_callback тощо
-from your_bot_module import start, handle_callback  # заміни your_bot_module на ім'я файлу з ботом
+from main.py import start, handle_callback  # заміни your_bot_module на ім'я файлу з ботом
 
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 PORT = int(os.environ.get("PORT", "8443"))
