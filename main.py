@@ -1,18 +1,18 @@
 import os
 import logging
 import json
+import io
 from typing import Dict, List
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from flask import Flask, request, jsonify
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.units import inch
-from reportlab.pdfbase import pdfutils
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfbase import pdfmetrics
-import io
+import asyncio
+import threading
 
 # Налаштування логування
 logging.basicConfig(
@@ -20,14 +20,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Замініть на ваш токен від BotFather
+# Отримання змінних середовища
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Ваш URL на Render (наприклад: https://your-app.onrender.com)
+
+if not BOT_TOKEN:
+    raise ValueError("TELEGRAM_TOKEN не знайдено в змінних середовища")
+
+if not WEBHOOK_URL:
+    raise ValueError("WEBHOOK_URL не знайдено в змінних середовища")
 
 # ДОДАЙТЕ СЮДИ ВАШЕ ПОСИЛАННЯ НА КОНСУЛЬТАЦІЮ
-CONSULTATION_LINK = "https://t.me/meme_pixel"  # Замініть на ваше посилання
-# Або можете використати посилання на Telegram: ""
+CONSULTATION_LINK = "https://t.me/meme_pixel"
 
-# Дані для квіза
+# Всі ваші дані для квіза (без змін)
 QUESTIONS = [
     {
         "id": 1,
@@ -101,7 +107,7 @@ QUESTIONS = [
     }
 ]
 
-# Результати тестування
+# Результати тестування (без змін)
 RESULTS = {
     "A": {
         "name": "🧠 Мислитель",
@@ -218,6 +224,14 @@ class UserSession:
         self.tie_breaker_needed = False
         self.tie_breaker_types = None
 
+# Ініціалізація бота та додатку
+bot = Bot(token=BOT_TOKEN)
+app = Flask(__name__)
+
+# Створюємо Application для обробки повідомлень
+application = Application.builder().token(BOT_TOKEN).build()
+
+# Додаємо обробники
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обробник команди /start"""
     user_id = update.effective_user.id
@@ -420,12 +434,11 @@ async def send_pdf_result(query, session, context):
     buffer.seek(0)
 
     await query.message.reply_document(document=buffer, filename="rezultat.pdf")
-
     
     await query.answer("PDF відправлено!")
 
 async def send_booking_info(query):
-    """Відправляє інформацію для запису на консультацію (резервна функція)"""
+    """Відправляє інформацію для запису на консультацію"""
     booking_text = f"""🗓 **Запис на персональну сесію**
 
 Для запису на 10-хвилинну розмову, скористайтесь посиланням:
@@ -445,23 +458,51 @@ async def send_booking_info(query):
         parse_mode='Markdown'
     )
 
-def main():
-    """Головна функція"""
-    # Перевіряємо чи встановлено посилання на консультацію
-    if CONSULTATION_LINK == "https://calendly.com/your-username/consultation":
-        print("⚠️  УВАГА: Не забудьте замінити CONSULTATION_LINK на ваше реальне посилання!")
-    
-    # Створюємо додаток
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Додаємо обробники
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(handle_callback))
-    
-    # Запускаємо бота
-    application.run_polling()
+# Додаємо обробники до application
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CallbackQueryHandler(handle_callback))
 
-if __name__ == "__main__":
-    main()
+# Flask маршрути
+@app.route('/', methods=['GET'])
+def index():
+    return jsonify({'status': 'Опитувальний бот працює!', 'webhook': 'активний'})
 
+@app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
+def webhook():
+    try:
+        if request.headers.get('content-type') == 'application/json':
+            json_string = request.get_data().decode('utf-8')
+            update_dict = json.loads(json_string)
+            update = Update.de_json(update_dict, bot)
+            
+            # Обробляємо update асинхронно
+            asyncio.run(application.process_update(update))
+            
+            return jsonify({'status': 'ok'})
+        else:
+            return jsonify({'status': 'error', 'message': 'Content-Type не application/json'}), 400
+    except Exception as e:
+        logger.error(f"Помилка в webhook: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# Функція для встановлення webhook
+def set_webhook():
+    try:
+        webhook_url = f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}"
+        # Видаляємо старий webhook
+        bot.delete_webhook()
+        # Встановлюємо новий webhook
+        bot.set_webhook(url=webhook_url)
+        logger.info(f"Webhook встановлено: {webhook_url}")
+        print(f"✅ Webhook встановлено: {webhook_url}")
+    except Exception as e:
+        logger.error(f"Помилка встановлення webhook: {e}")
+        print(f"❌ Помилка встановлення webhook: {e}")
+
+if __name__ == '__main__':
+    # Встановлюємо webhook при запуску
+    set_webhook()
+    
+    # Запускаємо Flask сервер
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
