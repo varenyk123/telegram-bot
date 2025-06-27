@@ -240,9 +240,6 @@ app = Flask(__name__)
 # Він буде керувати обробкою всіх оновлень від Telegram.
 application = Application.builder().token(BOT_TOKEN).build()
 
-# Додаємо обробники до application
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CallbackQueryHandler(handle_callback))
 
 # Асинхронні функції для обробки команд та колбеків Telegram
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -256,7 +253,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🔐 У тебе є 7 кроків. За кожен — ти відкриватимеш ось нове про себе.
 
-� У фіналі отримаєш: свій внутрішній двигун + особисту рекомендацію.
+🎯 У фіналі отримаєш: свій внутрішній двигун + особисту рекомендацію.
 
 🖤 Важливо: ця система не для всіх. Лише для тих, хто справді хоче побачити себе без маски та прикрас.
 
@@ -488,6 +485,11 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         except Exception as e:
             logger.error(f"Не вдалося відправити повідомлення про помилку користувачеві: {e}")
 
+# Додаємо обробники до application ПІСЛЯ визначення функцій
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CallbackQueryHandler(handle_callback))
+application.add_error_handler(error_handler)
+
 
 # Flask маршрути
 @app.route('/', methods=['GET'])
@@ -557,9 +559,6 @@ if __name__ == '__main__':
     telegram_thread = threading.Thread(target=run_telegram_app_in_thread)
     telegram_thread.daemon = True # Дозволяє потоку завершитись, коли завершиться основний потік
     telegram_thread.start()
-
-    # Встановлюємо обробник помилок для Application
-    application.add_error_handler(error_handler)
 
     # Встановлюємо webhook на сервері Telegram.
     # Цей виклик має бути зроблений після того, як Application.bot буде ініціалізовано
