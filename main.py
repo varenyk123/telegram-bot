@@ -7,7 +7,7 @@ import threading
 from typing import Dict, List
 
 from flask import Flask, request, jsonify
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery # Додано CallbackQuery
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
 # Імпорти для генерації PDF
@@ -301,7 +301,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "book_session":
         await send_booking_info(query)
 
-async def send_question(query: CallbackQuery, session: UserSession): # Виправлено тип
+async def send_question(query: CallbackQuery, session: UserSession):
     """Відправляє поточне питання квізу користувачеві."""
     question = QUESTIONS[session.current_question]
     
@@ -319,7 +319,7 @@ async def send_question(query: CallbackQuery, session: UserSession): # Випр�
         reply_markup=reply_markup
     )
 
-async def process_results(query: CallbackQuery, session: UserSession): # Виправлено тип
+async def process_results(query: CallbackQuery, session: UserSession):
     """Обробляє зібрані відповіді та визначає тип особистості або відправляє додаткове питання."""
     # Підраховуємо відповіді
     counts = {"A": 0, "B": 0, "C": 0, "D": 0}
@@ -328,10 +328,10 @@ async def process_results(query: CallbackQuery, session: UserSession): # Вип�
     
     # Знаходимо максимальну кількість
     max_count = 0
-    if counts: # Перевірка, щоб уникнути помилки, якщо counts пустий
+    if counts:
         max_count = max(counts.values())
     
-    winners = [k for k, v in counts.items() if v == max_count and max_count > 0] # Додано max_count > 0
+    winners = [k for k, v in counts.items() if v == max_count and max_count > 0]
     
     if len(winners) == 1:
         # Є явний переможець
@@ -340,7 +340,7 @@ async def process_results(query: CallbackQuery, session: UserSession): # Вип�
     else:
         # Потрібне додаткове питання, якщо є 2 переможці
         if len(winners) == 2:
-            tie_key = tuple(sorted(winners)) # Сортуємо для консистентності ключа
+            tie_key = tuple(sorted(winners))
             if tie_key in TIE_BREAKER_QUESTIONS:
                 await send_tie_breaker_question(query, session, tie_key)
             else:
@@ -352,7 +352,7 @@ async def process_results(query: CallbackQuery, session: UserSession): # Вип�
             result_type = winners[0]
             await send_final_result(query, session, result_type)
 
-async def send_tie_breaker_question(query: CallbackQuery, session: UserSession, tie_types: tuple): # Виправлено тип
+async def send_tie_breaker_question(query: CallbackQuery, session: UserSession, tie_types: tuple):
     """Відправляє додаткове питання для визначення типу при рівності результатів."""
     session.tie_breaker_types = tie_types
     question = TIE_BREAKER_QUESTIONS[tie_types]
@@ -371,7 +371,7 @@ async def send_tie_breaker_question(query: CallbackQuery, session: UserSession, 
         reply_markup=reply_markup
     )
 
-async def send_final_result(query: CallbackQuery, session: UserSession, result_type: str): # Виправлено тип
+async def send_final_result(query: CallbackQuery, session: UserSession, result_type: str):
     """Відправляє фінальний результат тесту користувачеві."""
     result = RESULTS[result_type]
     
@@ -411,7 +411,7 @@ async def send_final_result(query: CallbackQuery, session: UserSession, result_t
         parse_mode='Markdown'
     )
 
-async def send_pdf_result(query: CallbackQuery, session: UserSession, context: ContextTypes.DEFAULT_TYPE): # Виправлено тип
+async def send_pdf_result(query: CallbackQuery, session: UserSession, context: ContextTypes.DEFAULT_TYPE):
     """Генерує PDF з результатами тесту та відправляє його користувачеві."""
     if not hasattr(session, 'final_result') or session.final_result is None:
         await query.answer("Спочатку пройдіть тест, щоб отримати PDF!")
@@ -451,7 +451,7 @@ async def send_pdf_result(query: CallbackQuery, session: UserSession, context: C
     
     await query.answer("PDF відправлено!")
 
-async def send_booking_info(query: CallbackQuery): # Виправлено тип
+async def send_booking_info(query: CallbackQuery):
     """Відправляє інформацію для запису на консультацію."""
     booking_text = f"""🗓 **Запис на персональну сесію**
 
@@ -547,6 +547,9 @@ if __name__ == '__main__':
         """Функція, яка запускає Application в новому циклі подій в окремому потоці."""
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        
+        # ДОДАНО: Ініціалізація Application перед стартом
+        loop.run_until_complete(application.initialize()) 
         
         # Запускаємо Application.start() асинхронно
         loop.run_until_complete(application.start())
