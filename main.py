@@ -7,7 +7,7 @@ import threading
 from typing import Dict, List
 
 from flask import Flask, request, jsonify
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery # Додано CallbackQuery
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
 # Імпорти для генерації PDF
@@ -301,7 +301,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "book_session":
         await send_booking_info(query)
 
-async def send_question(query: Update.CallbackQuery, session: UserSession):
+async def send_question(query: CallbackQuery, session: UserSession): # Виправлено тип
     """Відправляє поточне питання квізу користувачеві."""
     question = QUESTIONS[session.current_question]
     
@@ -319,7 +319,7 @@ async def send_question(query: Update.CallbackQuery, session: UserSession):
         reply_markup=reply_markup
     )
 
-async def process_results(query: Update.CallbackQuery, session: UserSession):
+async def process_results(query: CallbackQuery, session: UserSession): # Виправлено тип
     """Обробляє зібрані відповіді та визначає тип особистості або відправляє додаткове питання."""
     # Підраховуємо відповіді
     counts = {"A": 0, "B": 0, "C": 0, "D": 0}
@@ -352,7 +352,7 @@ async def process_results(query: Update.CallbackQuery, session: UserSession):
             result_type = winners[0]
             await send_final_result(query, session, result_type)
 
-async def send_tie_breaker_question(query: Update.CallbackQuery, session: UserSession, tie_types: tuple):
+async def send_tie_breaker_question(query: CallbackQuery, session: UserSession, tie_types: tuple): # Виправлено тип
     """Відправляє додаткове питання для визначення типу при рівності результатів."""
     session.tie_breaker_types = tie_types
     question = TIE_BREAKER_QUESTIONS[tie_types]
@@ -371,7 +371,7 @@ async def send_tie_breaker_question(query: Update.CallbackQuery, session: UserSe
         reply_markup=reply_markup
     )
 
-async def send_final_result(query: Update.CallbackQuery, session: UserSession, result_type: str):
+async def send_final_result(query: CallbackQuery, session: UserSession, result_type: str): # Виправлено тип
     """Відправляє фінальний результат тесту користувачеві."""
     result = RESULTS[result_type]
     
@@ -411,7 +411,7 @@ async def send_final_result(query: Update.CallbackQuery, session: UserSession, r
         parse_mode='Markdown'
     )
 
-async def send_pdf_result(query: Update.CallbackQuery, session: UserSession, context: ContextTypes.DEFAULT_TYPE):
+async def send_pdf_result(query: CallbackQuery, session: UserSession, context: ContextTypes.DEFAULT_TYPE): # Виправлено тип
     """Генерує PDF з результатами тесту та відправляє його користувачеві."""
     if not hasattr(session, 'final_result') or session.final_result is None:
         await query.answer("Спочатку пройдіть тест, щоб отримати PDF!")
@@ -451,7 +451,7 @@ async def send_pdf_result(query: Update.CallbackQuery, session: UserSession, con
     
     await query.answer("PDF відправлено!")
 
-async def send_booking_info(query: Update.CallbackQuery):
+async def send_booking_info(query: CallbackQuery): # Виправлено тип
     """Відправляє інформацію для запису на консультацію."""
     booking_text = f"""🗓 **Запис на персональну сесію**
 
