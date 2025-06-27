@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # Отримання змінних середовища
 # Переконайтеся, що ці змінні встановлені на Render
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Наприклад: https://your-app.onrender.com
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Наприклад: https://your-app.onrender.com)
 
 if not BOT_TOKEN:
     raise ValueError("TELEGRAM_TOKEN не знайдено в змінних середовища. Будь ласка, встановіть її.")
@@ -245,6 +245,7 @@ application = Application.builder().token(BOT_TOKEN).build()
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обробник команди /start. Ініціалізує сесію користувача та відправляє привітання."""
     logger.info(f"Handler 'start' called for user {update.effective_user.id}")
+    print(f"DEBUG: START handler called for user {update.effective_user.id}") # Додано print
     user_id = update.effective_user.id
     user_sessions[user_id] = UserSession(user_id)
     
@@ -254,14 +255,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🔐 У тебе є 7 кроків. За кожен — ти відкриватимеш ось нове про себе.
 
-🎯 У фіналі отримаєш: свій внутрішній двигун + особисту рекомендацію.
+� У фіналі отримаєш: свій внутрішній двигун + особисту рекомендацію.
 
 🖤 Важливо: ця система не для всіх. Лише для тих, хто справді хоче побачити себе без маски та прикрас.
 
 Якщо ти хочеш дізнатись хто ти:
 • **Мислитель**
 • **Діяч** • **Творець**
-• • **Будівник**"""
+• **Будівник**"""
     
     keyboard = [[InlineKeyboardButton("▶️ Почати", callback_data="start_quiz")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -271,6 +272,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обробник callback запитів від кнопок."""
     logger.info(f"Handler 'handle_callback' called for user {update.effective_user.id} with data: {update.callback_query.data}")
+    print(f"DEBUG: CALLBACK handler called for user {update.effective_user.id} with data: {update.callback_query.data}") # Додано print
     query = update.callback_query
     await query.answer() # Завжди відповідаємо на callback query, щоб прибрати "годинник" на кнопці
     
@@ -306,6 +308,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_question(query: CallbackQuery, session: UserSession):
     """Відправляє поточне питання квізу користувачеві."""
     logger.info(f"Sending question {session.current_question + 1} to user {session.user_id}")
+    print(f"DEBUG: Sending question {session.current_question + 1} to user {session.user_id}") # Додано print
     question = QUESTIONS[session.current_question]
     
     keyboard = []
@@ -325,12 +328,11 @@ async def send_question(query: CallbackQuery, session: UserSession):
 async def process_results(query: CallbackQuery, session: UserSession):
     """Обробляє зібрані відповіді та визначає тип особистості або відправляє додаткове питання."""
     logger.info(f"Processing results for user {session.user_id}")
-    # Підраховуємо відповіді
+    print(f"DEBUG: Processing results for user {session.user_id}") # Додано print
     counts = {"A": 0, "B": 0, "C": 0, "D": 0}
     for answer in session.answers:
         counts[answer] += 1
     
-    # Знаходимо максимальну кількість
     max_count = 0
     if counts:
         max_count = max(counts.values())
@@ -338,27 +340,24 @@ async def process_results(query: CallbackQuery, session: UserSession):
     winners = [k for k, v in counts.items() if v == max_count and max_count > 0]
     
     if len(winners) == 1:
-        # Є явний переможець
         result_type = winners[0]
         await send_final_result(query, session, result_type)
     else:
-        # Потрібне додаткове питання, якщо є 2 переможці
         if len(winners) == 2:
             tie_key = tuple(sorted(winners))
             if tie_key in TIE_BREAKER_QUESTIONS:
                 await send_tie_breaker_question(query, session, tie_key)
             else:
-                # Якщо немає додаткового питання для цієї комбінації, вибираємо перший варіант
                 result_type = winners[0]
                 await send_final_result(query, session, result_type)
         else:
-            # Більше 2 варіантів з однаковою кількістю - вибираємо перший (або можна додати більш складну логіку)
             result_type = winners[0]
             await send_final_result(query, session, result_type)
 
 async def send_tie_breaker_question(query: CallbackQuery, session: UserSession, tie_types: tuple):
     """Відправляє додаткове питання для визначення типу при рівності результатів."""
     logger.info(f"Sending tie-breaker question for user {session.user_id} with types {tie_types}")
+    print(f"DEBUG: Sending tie-breaker question for user {session.user_id} with types {tie_types}") # Додано print
     session.tie_breaker_types = tie_types
     question = TIE_BREAKER_QUESTIONS[tie_types]
     
@@ -379,6 +378,7 @@ async def send_tie_breaker_question(query: CallbackQuery, session: UserSession, 
 async def send_final_result(query: CallbackQuery, session: UserSession, result_type: str):
     """Відправляє фінальний результат тесту користувачеві."""
     logger.info(f"Sending final result '{result_type}' to user {session.user_id}")
+    print(f"DEBUG: Sending final result '{result_type}' to user {session.user_id}") # Додано print
     result = RESULTS[result_type]
     
     result_text = f"""🧬 **Твій тип: {result['name']}**
@@ -420,6 +420,7 @@ async def send_final_result(query: CallbackQuery, session: UserSession, result_t
 async def send_pdf_result(query: CallbackQuery, session: UserSession, context: ContextTypes.DEFAULT_TYPE):
     """Генерує PDF з результатами тесту та відправляє його користувачеві."""
     logger.info(f"Generating PDF for user {session.user_id}")
+    print(f"DEBUG: Generating PDF for user {session.user_id}") # Додано print
     if not hasattr(session, 'final_result') or session.final_result is None:
         await query.answer("Спочатку пройдіть тест, щоб отримати PDF!")
         return
@@ -461,6 +462,7 @@ async def send_pdf_result(query: CallbackQuery, session: UserSession, context: C
 async def send_booking_info(query: CallbackQuery):
     """Відправляє інформацію для запису на консультацію."""
     logger.info(f"Sending booking info to user {query.from_user.id}")
+    print(f"DEBUG: Sending booking info to user {query.from_user.id}") # Додано print
     booking_text = f"""🗓 **Запис на персональну сесію**
 
 Для запису на 10-хвилинну розмову, скористайтесь посиланням:
@@ -483,6 +485,7 @@ async def send_booking_info(query: CallbackQuery):
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обробляє всі помилки, що виникають під час обробки оновлень."""
     logger.error(f"Виняток під час обробки оновлення: {context.error}", exc_info=True)
+    print(f"DEBUG: ERROR handler called. Error: {context.error}") # Додано print
     # Можна також відправити повідомлення користувачеві про помилку, якщо це доречно
     if isinstance(update, Update) and update.effective_chat:
         try:
@@ -502,6 +505,7 @@ application.add_error_handler(error_handler)
 async def handle_all_text_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Відповідає на будь-яке текстове повідомлення, яке не є командою."""
     logger.info(f"Handler 'handle_all_text_messages' called for user {update.effective_user.id} with text: {update.message.text}")
+    print(f"DEBUG: TEXT handler called for user {update.effective_user.id} with text: {update.message.text}") # Додано print
     if update.message and update.message.text:
         await update.message.reply_text(f"Ви сказали: {update.message.text}\nБудь ласка, натисніть /start, щоб почати тест.")
 
@@ -522,22 +526,29 @@ def webhook():
             json_string = request.get_data().decode('utf-8')
             update_dict = json.loads(json_string)
             logger.info(f"Received webhook update: {update_dict.get('update_id')}")
+            print(f"DEBUG: Received webhook update: {update_dict.get('update_id')}") # Додано print
             
-            # Створюємо об'єкт Update з отриманих даних
-            # application.bot вже ініціалізовано і доступно
             update = Update.de_json(update_dict, application.bot)
-            
-            # Додаємо оновлення в чергу Application.
-            # put_nowait() не блокує виконання Flask-маршруту.
-            application.update_queue.put_nowait(update)
-            logger.info(f"Update {update_dict.get('update_id')} put into queue.")
+            logger.info(f"Deserialized update: {update.to_dict()}") # Log the full update dict
+            print(f"DEBUG: Deserialized update: {update.to_dict()}") # Додано print
+
+            try:
+                application.update_queue.put_nowait(update)
+                logger.info(f"Update {update_dict.get('update_id')} put into queue.")
+                print(f"DEBUG: Update {update_dict.get('update_id')} put into queue.") # Додано print
+            except Exception as queue_e:
+                logger.error(f"Error putting update into queue: {queue_e}", exc_info=True)
+                print(f"DEBUG: Error putting update into queue: {queue_e}") # Додано print
+                return jsonify({'status': 'error', 'message': f"Queue error: {str(queue_e)}"})
             
             return jsonify({'status': 'ok'})
         else:
             logger.warning("Отримано запит з невірним Content-Type.")
+            print("DEBUG: Received request with incorrect Content-Type.") # Додано print
             return jsonify({'status': 'error', 'message': 'Content-Type не application/json'}), 400
     except Exception as e:
         logger.error(f"Помилка в webhook: {e}", exc_info=True) # exc_info=True для виводу traceback
+        print(f"DEBUG: Error in webhook: {e}") # Додано print
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # Функція для встановлення webhook на сервері Telegram
@@ -562,34 +573,82 @@ if __name__ == '__main__':
     # для того, щоб асинхронний Application міг працювати у фоновому потоці,
     # не блокуючи основний потік Flask.
     
+    async def process_updates_loop():
+        """Явний цикл для обробки оновлень з черги Application."""
+        while True:
+            try:
+                update = await application.update_queue.get()
+                if update is None: # Sentinel for shutdown
+                    logger.info("Received sentinel to stop update processing loop.")
+                    print("DEBUG: Received sentinel to stop update processing loop.")
+                    break
+                logger.info(f"DEBUG: Processing update {update.update_id} from queue.")
+                print(f"DEBUG: Processing update {update.update_id} from queue.")
+                
+                await application.process_update(update)
+                
+                logger.info(f"DEBUG: Finished processing update {update.update_id}.")
+                print(f"DEBUG: Finished processing update {update.update_id}.")
+            except asyncio.CancelledError:
+                logger.info("Update processing loop cancelled.")
+                print("DEBUG: Update processing loop cancelled.")
+                break
+            except Exception as e:
+                logger.error(f"Error in update processing loop: {e}", exc_info=True)
+                print(f"DEBUG: Error in update processing loop: {e}")
+            finally:
+                application.update_queue.task_done()
+
     def run_telegram_app_in_thread():
         """Функція, яка запускає Application та встановлює webhook в новому циклі подій в окремому потоці."""
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
-        # Ініціалізація Application перед стартом
         loop.run_until_complete(application.initialize()) 
         logger.info("Application initialized.")
+        print("DEBUG: Application initialized in thread.")
         
-        # Запускаємо Application.start() асинхронно
-        loop.run_until_complete(application.start())
-        logger.info("Application started processing updates.")
-
-        # Встановлюємо webhook асинхронно після старту Application
+        # Встановлюємо webhook асинхронно ДО старту Application
         loop.run_until_complete(set_webhook_on_telegram_async())
         logger.info("Webhook setup completed in thread.")
+        print("DEBUG: Webhook setup completed in thread.")
+
+        # Запускаємо Application.start() асинхронно
+        # Note: application.start() typically starts polling or webhook handling.
+        # Since we're manually putting updates into the queue and explicitly processing them,
+        # application.start() is primarily used here to initialize the dispatcher and other internal components.
+        loop.run_until_complete(application.start())
+        logger.info("Application started (internal components).")
+        print("DEBUG: Application started (internal components) in thread.")
         
-        # Запускаємо цикл подій, щоб Application продовжував працювати
-        # і обробляти оновлення з черги.
-        loop.run_forever() 
+        # Створюємо та запускаємо задачу для обробки оновлень
+        update_processing_task = loop.create_task(process_updates_loop())
+        
+        print("DEBUG: Telegram Application event loop is about to run forever...")
+        try:
+            loop.run_forever()
+        except KeyboardInterrupt:
+            logger.info("Telegram Application loop interrupted.")
+            print("DEBUG: Telegram Application loop interrupted.")
+        except Exception as e:
+            logger.error(f"Unhandled exception in Telegram Application thread: {e}", exc_info=True)
+            print(f"DEBUG: Unhandled exception in Telegram Application thread: {e}")
+        finally:
+            logger.info("Stopping Telegram Application gracefully.")
+            print("DEBUG: Stopping Telegram Application gracefully.")
+            update_processing_task.cancel() # Скасовуємо задачу обробки оновлень
+            loop.run_until_complete(update_processing_task) # Чекаємо її завершення
+            loop.run_until_complete(application.stop()) # Зупиняємо Application
+            loop.close()
+            logger.info("Telegram Application loop stopped and closed.")
+            print("DEBUG: Telegram Application loop stopped and closed.")
 
     # Створюємо та запускаємо потік для Telegram Application
     telegram_thread = threading.Thread(target=run_telegram_app_in_thread)
-    telegram_thread.daemon = True # Дозволяє потоку завершитись, коли завершиться основний потік
+    telegram_thread.daemon = True
     telegram_thread.start()
 
     # Запускаємо Flask сервер
-    # Render надає порт через змінну середовища 'PORT'.
-    # За замовчуванням використовуємо 5000, якщо змінна не встановлена.
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
+�
