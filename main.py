@@ -119,7 +119,7 @@ RESULTS = {
 Ти все аналізуєш. Твій розум — як лупа, яка бачить кожну деталь.
 Але саме це і заважає: сумніви, перфекціонізм, роздуми без дії.
 Ти не відчуваєш руху — бо боїшся помилки.""",
-        "power": """🟩 *Стан сили:*
+        "power": """� *Стан сили:*
 Ти — архітектор ідей. Там, де інші втрачають орієнтир — ти бачиш карту.
 Твоя сила — створювати ясність. Твоя глибина — дар для тих, хто шукає змісту.
 Коли ти дієш — світ стає логічним.""",
@@ -260,7 +260,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Якщо ти хочеш дізнатись хто ти:
 • **Мислитель**
 • **Діяч** • **Творець**
-• **Будівник**"""
+• • **Будівник**"""
     
     keyboard = [[InlineKeyboardButton("▶️ Почати", callback_data="start_quiz")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -490,6 +490,14 @@ application.add_handler(CommandHandler("start", start))
 application.add_handler(CallbackQueryHandler(handle_callback))
 application.add_error_handler(error_handler)
 
+# ДОДАНО: Обробник для всіх текстових повідомлень, крім команд
+async def handle_all_text_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Відповідає на будь-яке текстове повідомлення, яке не є командою."""
+    if update.message and update.message.text:
+        await update.message.reply_text(f"Ви сказали: {update.message.text}\nБудь ласка, натисніть /start, щоб почати тест.")
+
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_all_text_messages))
+
 
 # Flask маршрути
 @app.route('/', methods=['GET'])
@@ -522,13 +530,13 @@ def webhook():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # Функція для встановлення webhook на сервері Telegram
-async def set_webhook_on_telegram_async(): # Зроблено асинхронною
+async def set_webhook_on_telegram_async():
     """Асинхронно встановлює webhook на сервері Telegram, вказуючи URL для отримання оновлень."""
     try:
         webhook_url = f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}"
-        # Використовуємо application.bot для встановлення webhook
-        # Це синхронний виклик, тому його можна викликати безпосередньо.
-        await application.bot.set_webhook(url=webhook_url) # Тепер await
+        # Видаляємо старий webhook перед встановленням нового
+        await application.bot.delete_webhook()
+        await application.bot.set_webhook(url=webhook_url)
         logger.info(f"Webhook встановлено: {webhook_url}")
         print(f"✅ Webhook встановлено: {webhook_url}")
     except Exception as e:
@@ -550,12 +558,15 @@ if __name__ == '__main__':
         
         # Ініціалізація Application перед стартом
         loop.run_until_complete(application.initialize()) 
+        logger.info("Application initialized.")
         
         # Запускаємо Application.start() асинхронно
         loop.run_until_complete(application.start())
+        logger.info("Application started processing updates.")
 
         # Встановлюємо webhook асинхронно після старту Application
-        loop.run_until_complete(set_webhook_on_telegram_async()) # Тепер викликаємо асинхронну функцію
+        loop.run_until_complete(set_webhook_on_telegram_async())
+        logger.info("Webhook setup completed in thread.")
         
         # Запускаємо цикл подій, щоб Application продовжував працювати
         # і обробляти оновлення з черги.
@@ -571,4 +582,3 @@ if __name__ == '__main__':
     # За замовчуванням використовуємо 5000, якщо змінна не встановлена.
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
-
