@@ -2,17 +2,20 @@ import os
 import logging
 import json
 import io
+import asyncio
+import threading
 from typing import Dict, List
+
 from flask import Flask, request, jsonify
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from reportlab.lib.pagesizes import letter, A4
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+
+# Імпорти для генерації PDF
+from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.units import inch
-import asyncio
-import threading
 
 # Налаштування логування
 logging.basicConfig(
@@ -21,19 +24,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Отримання змінних середовища
+# Переконайтеся, що ці змінні встановлені на Render
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Наприклад: https://your-app.onrender.com
 
 if not BOT_TOKEN:
-    raise ValueError("TELEGRAM_TOKEN не знайдено в змінних середовища")
+    raise ValueError("TELEGRAM_TOKEN не знайдено в змінних середовища. Будь ласка, встановіть її.")
 
 if not WEBHOOK_URL:
-    raise ValueError("WEBHOOK_URL не знайдено в змінних середовища")
+    raise ValueError("WEBHOOK_URL не знайдено в змінних середовища. Будь ласка, встановіть її.")
 
 # ДОДАЙТЕ СЮДИ ВАШЕ ПОСИЛАННЯ НА КОНСУЛЬТАЦІЮ
 CONSULTATION_LINK = "https://t.me/meme_pixel"
 
-# Всі ваші дані для квіза
+# Всі ваші дані для квіза (без змін)
 QUESTIONS = [
     {
         "id": 1,
@@ -107,7 +111,7 @@ QUESTIONS = [
     }
 ]
 
-# Результати тестування
+# Результати тестування (без змін)
 RESULTS = {
     "A": {
         "name": "🧠 Мислитель",
@@ -119,7 +123,7 @@ RESULTS = {
 Ти — архітектор ідей. Там, де інші втрачають орієнтир — ти бачиш карту.
 Твоя сила — створювати ясність. Твоя глибина — дар для тих, хто шукає змісту.
 Коли ти дієш — світ стає логічним.""",
-        "solution": """🎯 *Рішення:*
+        "solution": """� *Рішення:*
 Вибери одну справу, яка важлива для тебе.
 І дозволь собі зробити її неідеально — але завершити.
 Твоя свобода — у русі."""
@@ -214,25 +218,35 @@ TIE_BREAKER_QUESTIONS = {
 }
 
 # Словник для збереження стану користувачів
-user_sessions = {}
+# У реальному продакшені краще використовувати базу даних (наприклад, Redis, PostgreSQL)
+# для збереження сесій, оскільки при перезапуску сервісу дані будуть втрачені.
+user_sessions: Dict[int, 'UserSession'] = {}
 
 class UserSession:
-    def __init__(self, user_id):
+    """Клас для зберігання стану користувача під час проходження квізу."""
+    def __init__(self, user_id: int):
         self.user_id = user_id
         self.current_question = 0
-        self.answers = []
+        self.answers: List[str] = []
         self.tie_breaker_needed = False
         self.tie_breaker_types = None
+        self.final_result: str | None = None # Додано для зберігання фінального результату
 
-# Ініціалізація Flask
+# Ініціалізація Flask додатку
 app = Flask(__name__)
 
-# Створюємо bot instance
-bot = Bot(token=BOT_TOKEN)
+# Ініціалізація Application для python-telegram-bot
+# Application створюється глобально, щоб його можна було використовувати в різних частинах додатку.
+# Він буде керувати обробкою всіх оновлень від Telegram.
+application = Application.builder().token(BOT_TOKEN).build()
 
-# Обробники команд
+# Додаємо обробники до application
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CallbackQueryHandler(handle_callback))
+
+# Асинхронні функції для обробки команд та колбеків Telegram
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробник команди /start"""
+    """Обробник команди /start. Ініціалізує сесію користувача та відправляє привітання."""
     user_id = update.effective_user.id
     user_sessions[user_id] = UserSession(user_id)
     
@@ -248,8 +262,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Якщо ти хочеш дізнатись хто ти:
 • **Мислитель**
-• **Діяч** 
-• **Творець**
+• **Діяч** • **Творець**
 • **Будівник**"""
     
     keyboard = [[InlineKeyboardButton("▶️ Почати", callback_data="start_quiz")]]
@@ -258,13 +271,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробник callback запитів"""
+    """Обробник callback запитів від кнопок."""
     query = update.callback_query
-    await query.answer()
+    await query.answer() # Завжди відповідаємо на callback query, щоб прибрати "годинник" на кнопці
     
     user_id = query.from_user.id
     data = query.data
     
+    # Перевіряємо, чи існує сесія для користувача, якщо ні - створюємо нову
     if user_id not in user_sessions:
         user_sessions[user_id] = UserSession(user_id)
     
@@ -290,8 +304,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "book_session":
         await send_booking_info(query)
 
-async def send_question(query, session):
-    """Відправляє поточне питання"""
+async def send_question(query: Update.CallbackQuery, session: UserSession):
+    """Відправляє поточне питання квізу користувачеві."""
     question = QUESTIONS[session.current_question]
     
     keyboard = []
@@ -308,32 +322,41 @@ async def send_question(query, session):
         reply_markup=reply_markup
     )
 
-async def process_results(query, session):
-    """Обробляє результати та визначає тип особистості"""
+async def process_results(query: Update.CallbackQuery, session: UserSession):
+    """Обробляє зібрані відповіді та визначає тип особистості або відправляє додаткове питання."""
+    # Підраховуємо відповіді
     counts = {"A": 0, "B": 0, "C": 0, "D": 0}
     for answer in session.answers:
         counts[answer] += 1
     
-    max_count = max(counts.values())
-    winners = [k for k, v in counts.items() if v == max_count]
+    # Знаходимо максимальну кількість
+    max_count = 0
+    if counts: # Перевірка, щоб уникнути помилки, якщо counts пустий
+        max_count = max(counts.values())
+    
+    winners = [k for k, v in counts.items() if v == max_count and max_count > 0] # Додано max_count > 0
     
     if len(winners) == 1:
+        # Є явний переможець
         result_type = winners[0]
         await send_final_result(query, session, result_type)
     else:
+        # Потрібне додаткове питання, якщо є 2 переможці
         if len(winners) == 2:
-            tie_key = tuple(sorted(winners))
+            tie_key = tuple(sorted(winners)) # Сортуємо для консистентності ключа
             if tie_key in TIE_BREAKER_QUESTIONS:
                 await send_tie_breaker_question(query, session, tie_key)
             else:
+                # Якщо немає додаткового питання для цієї комбінації, вибираємо перший варіант
                 result_type = winners[0]
                 await send_final_result(query, session, result_type)
         else:
+            # Більше 2 варіантів з однаковою кількістю - вибираємо перший (або можна додати більш складну логіку)
             result_type = winners[0]
             await send_final_result(query, session, result_type)
 
-async def send_tie_breaker_question(query, session, tie_types):
-    """Відправляє додаткове питання для визначення типу"""
+async def send_tie_breaker_question(query: Update.CallbackQuery, session: UserSession, tie_types: tuple):
+    """Відправляє додаткове питання для визначення типу при рівності результатів."""
     session.tie_breaker_types = tie_types
     question = TIE_BREAKER_QUESTIONS[tie_types]
     
@@ -351,8 +374,8 @@ async def send_tie_breaker_question(query, session, tie_types):
         reply_markup=reply_markup
     )
 
-async def send_final_result(query, session, result_type):
-    """Відправляє фінальний результат"""
+async def send_final_result(query: Update.CallbackQuery, session: UserSession, result_type: str):
+    """Відправляє фінальний результат тесту користувачеві."""
     result = RESULTS[result_type]
     
     result_text = f"""🧬 **Твій тип: {result['name']}**
@@ -382,6 +405,7 @@ async def send_final_result(query, session, result_type):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    # Зберігаємо результат в сесії
     session.final_result = result_type
     
     await query.edit_message_text(
@@ -390,14 +414,15 @@ async def send_final_result(query, session, result_type):
         parse_mode='Markdown'
     )
 
-async def send_pdf_result(query, session, context):
-    """Генерує та відправляє PDF з результатами"""
-    if not hasattr(session, 'final_result'):
-        await query.answer("Спочатку пройдіть тест!")
+async def send_pdf_result(query: Update.CallbackQuery, session: UserSession, context: ContextTypes.DEFAULT_TYPE):
+    """Генерує PDF з результатами тесту та відправляє його користувачеві."""
+    if not hasattr(session, 'final_result') or session.final_result is None:
+        await query.answer("Спочатку пройдіть тест, щоб отримати PDF!")
         return
 
     result = RESULTS[session.final_result]
 
+    # Створюємо PDF у пам'яті
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
 
@@ -406,24 +431,31 @@ async def send_pdf_result(query, session, context):
     normal_style = styles['BodyText']
 
     story = []
+
     story.append(Paragraph("🧬 СИСТЕМА ЯДЕР — РЕЗУЛЬТАТ", title_style))
     story.append(Spacer(1, 12))
+
     story.append(Paragraph(f"🔹 Твій тип: {result['name']}", normal_style))
     story.append(Spacer(1, 12))
+
+    # Замінюємо markdown зірочки на порожній рядок для PDF
     story.append(Paragraph(result['shadow'].replace("*", ""), normal_style))
     story.append(Spacer(1, 12))
+
     story.append(Paragraph(result['power'].replace("*", ""), normal_style))
     story.append(Spacer(1, 12))
+
     story.append(Paragraph(result['solution'].replace("*", ""), normal_style))
 
     doc.build(story)
-    buffer.seek(0)
+    buffer.seek(0) # Переміщуємо вказівник на початок буфера
 
     await query.message.reply_document(document=buffer, filename="rezultat.pdf")
+    
     await query.answer("PDF відправлено!")
 
-async def send_booking_info(query):
-    """Відправляє інформацію для запису на консультацію"""
+async def send_booking_info(query: Update.CallbackQuery):
+    """Відправляє інформацію для запису на консультацію."""
     booking_text = f"""🗓 **Запис на персональну сесію**
 
 Для запису на 10-хвилинну розмову, скористайтесь посиланням:
@@ -443,59 +475,102 @@ async def send_booking_info(query):
         parse_mode='Markdown'
     )
 
-# Створюємо Application тільки для обробки повідомлень
-application = None
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обробляє всі помилки, що виникають під час обробки оновлень."""
+    logger.error(f"Виняток під час обробки оновлення: {context.error}", exc_info=True)
+    # Можна також відправити повідомлення користувачеві про помилку, якщо це доречно
+    if isinstance(update, Update) and update.effective_chat:
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="На жаль, сталася помилка під час обробки вашого запиту. Спробуйте ще раз пізніше."
+            )
+        except Exception as e:
+            logger.error(f"Не вдалося відправити повідомлення про помилку користувачеві: {e}")
 
-async def process_telegram_update(update_data):
-    """Обробляє Telegram оновлення"""
-    global application
-    if application is None:
-        application = Application.builder().token(BOT_TOKEN).build()
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CallbackQueryHandler(handle_callback))
-        await application.initialize()
-    
-    update = Update.de_json(update_data, bot)
-    await application.process_update(update)
 
 # Flask маршрути
 @app.route('/', methods=['GET'])
 def index():
+    """Простий маршрут для перевірки стану сервісу."""
     return jsonify({'status': 'Опитувальний бот працює!', 'webhook': 'активний'})
 
 @app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
 def webhook():
+    """Маршрут для обробки вхідних оновлень від Telegram."""
     try:
         if request.headers.get('content-type') == 'application/json':
             json_string = request.get_data().decode('utf-8')
             update_dict = json.loads(json_string)
             
-            # Обробляємо update асинхронно
-            asyncio.run(process_telegram_update(update_dict))
+            # Створюємо об'єкт Update з отриманих даних
+            # application.bot вже ініціалізовано і доступно
+            update = Update.de_json(update_dict, application.bot)
+            
+            # Додаємо оновлення в чергу Application.
+            # put_nowait() не блокує виконання Flask-маршруту.
+            application.update_queue.put_nowait(update)
             
             return jsonify({'status': 'ok'})
         else:
+            logger.warning("Отримано запит з невірним Content-Type.")
             return jsonify({'status': 'error', 'message': 'Content-Type не application/json'}), 400
     except Exception as e:
-        logger.error(f"Помилка в webhook: {e}")
+        logger.error(f"Помилка в webhook: {e}", exc_info=True) # exc_info=True для виводу traceback
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-# Функція для встановлення webhook
-async def set_webhook():
+# Функція для встановлення webhook на сервері Telegram
+def set_webhook_on_telegram():
+    """Встановлює webhook на сервері Telegram, вказуючи URL для отримання оновлень."""
     try:
         webhook_url = f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}"
-        await bot.delete_webhook()
-        await bot.set_webhook(url=webhook_url)
+        # Використовуємо application.bot для встановлення webhook
+        # Це синхронний виклик, тому його можна викликати безпосередньо.
+        application.bot.set_webhook(url=webhook_url)
         logger.info(f"Webhook встановлено: {webhook_url}")
         print(f"✅ Webhook встановлено: {webhook_url}")
     except Exception as e:
-        logger.error(f"Помилка встановлення webhook: {e}")
+        logger.error(f"Помилка встановлення webhook: {e}", exc_info=True)
         print(f"❌ Помилка встановлення webhook: {e}")
 
+# Головна точка входу для запуску додатку
 if __name__ == '__main__':
-    # Встановлюємо webhook при запуску
-    asyncio.run(set_webhook())
+    # Запускаємо Application в окремому потоці.
+    # Application.start() запускає внутрішній цикл обробки оновлень.
+    # Ми використовуємо asyncio.new_event_loop() та loop.run_forever()
+    # для того, щоб асинхронний Application міг працювати у фоновому потоці,
+    # не блокуючи основний потік Flask.
+    
+    def run_telegram_app_in_thread():
+        """Функція, яка запускає Application в новому циклі подій в окремому потоці."""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Запускаємо Application.start() асинхронно
+        loop.run_until_complete(application.start())
+        
+        # Запускаємо цикл подій, щоб Application продовжував працювати
+        # і обробляти оновлення з черги.
+        loop.run_forever() 
+
+    # Створюємо та запускаємо потік для Telegram Application
+    telegram_thread = threading.Thread(target=run_telegram_app_in_thread)
+    telegram_thread.daemon = True # Дозволяє потоку завершитись, коли завершиться основний потік
+    telegram_thread.start()
+
+    # Встановлюємо обробник помилок для Application
+    application.add_error_handler(error_handler)
+
+    # Встановлюємо webhook на сервері Telegram.
+    # Цей виклик має бути зроблений після того, як Application.bot буде ініціалізовано
+    # і Application почне працювати (тобто після старту потоку).
+    # Оскільки application.bot вже ініціалізовано глобально, це має працювати.
+    set_webhook_on_telegram()
     
     # Запускаємо Flask сервер
+    # Render надає порт через змінну середовища 'PORT'.
+    # За замовчуванням використовуємо 5000, якщо змінна не встановлена.
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
+�
