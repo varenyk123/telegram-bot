@@ -71,7 +71,7 @@ QUESTIONS = [
     },
     {
         "id": 4,
-        "text": "🧩 4. Як ставишся до змін у житті?",
+        "text": "� 4. Як ставишся до змін у житті?",
         "options": [
             {"text": "A) Думаю, чи воно мені підходить", "type": "A"},
             {"text": "B) Пробую — і бачу вже по ходу", "type": "B"},
@@ -255,7 +255,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🔐 У тебе є 7 кроків. За кожен — ти відкриватимеш ось нове про себе.
 
-� У фіналі отримаєш: свій внутрішній двигун + особисту рекомендацію.
+🎯 У фіналі отримаєш: свій внутрішній двигун + особисту рекомендацію.
 
 🖤 Важливо: ця система не для всіх. Лише для тих, хто справді хоче побачити себе без маски та прикрас.
 
@@ -609,17 +609,14 @@ if __name__ == '__main__':
         print("DEBUG: Application initialized in thread.")
         
         # Встановлюємо webhook асинхронно ДО старту Application
+        # Це гарантує, що webhook вже налаштований, коли Application починає обробку оновлень.
         loop.run_until_complete(set_webhook_on_telegram_async())
         logger.info("Webhook setup completed in thread.")
         print("DEBUG: Webhook setup completed in thread.")
 
-        # Запускаємо Application.start() асинхронно
-        # Note: application.start() typically starts polling or webhook handling.
-        # Since we're manually putting updates into the queue and explicitly processing them,
-        # application.start() is primarily used here to initialize the dispatcher and other internal components.
-        loop.run_until_complete(application.start())
-        logger.info("Application started (internal components).")
-        print("DEBUG: Application started (internal components) in thread.")
+        # application.start() видалено, оскільки ми явно обробляємо чергу.
+        # logger.info("Application started (internal components).")
+        # print("DEBUG: Application started (internal components) in thread.")
         
         # Створюємо та запускаємо задачу для обробки оновлень
         update_processing_task = loop.create_task(process_updates_loop())
@@ -638,7 +635,8 @@ if __name__ == '__main__':
             print("DEBUG: Stopping Telegram Application gracefully.")
             update_processing_task.cancel() # Скасовуємо задачу обробки оновлень
             loop.run_until_complete(update_processing_task) # Чекаємо її завершення
-            loop.run_until_complete(application.stop()) # Зупиняємо Application
+            # application.stop() все ще корисний для очищення диспетчера та інших внутрішніх ресурсів.
+            loop.run_until_complete(application.stop()) 
             loop.close()
             logger.info("Telegram Application loop stopped and closed.")
             print("DEBUG: Telegram Application loop stopped and closed.")
